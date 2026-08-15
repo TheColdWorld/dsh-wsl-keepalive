@@ -1,0 +1,6 @@
+# wsl-keepalive bundle patch: 插入本插件行（Host + Client 两个半边都由这一行挂载，
+# Client 半边通过 package.json 的 dsh.client 声明被发现）。
+# 安装时执行 `dsh plugin --profile web add <本包路径>` 后即生效。
+- insert:
+    - id: wsl-keepalive
+      name: 'wsl-keepalive'
