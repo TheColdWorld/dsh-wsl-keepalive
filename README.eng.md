@@ -4,7 +4,7 @@
 
 > [!IMPORTANT]
 > **This is an unofficial third-party project.** This project is not an official DeepSeek product, and is not developed, published, endorsed, or supported by DeepSeek, nor does it represent DeepSeek's position. `DeepSeek`, `DeepSeek Harness`, `dsh` and related names, logos, and trademarks belong to their respective owners. For keep-alive issues, please submit them to this repository; do not contact DeepSeek official support.
-> This plugin is completely AI-generated and distributed under the MIT license.
+> <br>This plugin is completely AI-generated and distributed under the MIT license.
 
 Provides a **Keep-Alive** toggle in the **DSH WebUI** settings to prevent WSL distros from being automatically shut down by Windows when idle.
 When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` and shows the current dbus-daemon PID in the settings UI.

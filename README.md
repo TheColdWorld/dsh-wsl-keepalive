@@ -3,7 +3,7 @@
 [中文](README.md) | [English](README.eng.md)
 > [!IMPORTANT]
 > **这是非官方第三方项目。** 本项目并非 DeepSeek 官方产品，不由 DeepSeek 开发、发布、背书或提供支持，也不代表 DeepSeek 的立场。`DeepSeek`、`DeepSeek Harness`、`dsh` 及相关名称、标识和商标归其各自权利人所有。关于保活的问题请提交到本仓库，不要联系 DeepSeek 官方支持。
-> 本插件完全由 AI 生成，以MIT协议进行分发
+> <br>本插件完全由 AI 生成，以MIT协议进行分发
 
 在 **DSH WebUI** 的设置里提供「保活」开关，用于防止 WSL 发行版因空闲被 Windows 自动关闭。
 切换开关时，由 DSH 宿主机执行 dbus-daemon 的启动 / 停止 / 查询，并将当前 dbus-daemon 的 PID 显示在设置界面。
