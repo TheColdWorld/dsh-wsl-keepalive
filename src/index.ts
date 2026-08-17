@@ -1,8 +1,8 @@
 /**
- * wsl-keepalive host half — 挂载保活服务与 /api/wsl-keepalive/* HTTP 路由。
- * 浏览器半边（./client 入口）通过同源 JSON 端点读取/切换保活状态。
- * 通信机制：静态插件无法使用动态插件的 harness.handle/host.call，
- * 故改用 Host 注册 HTTP 路由 + Client fetch（与 dsh-balance-meter 的 /api/balance 同模式）。
+ * wsl-keepalive host half — mounts the keep-alive service and the /api/wsl-keepalive/* HTTP routes.
+ * The browser half (./client entry) reads/toggles keep-alive state through these same-origin JSON endpoints.
+ * Communication mechanism: static plugins cannot use the dynamic plugin's harness.handle/host.call,
+ * so the Host registers HTTP routes + the Client uses fetch (the same pattern as dsh-balance-meter's /api/balance).
  * @module wsl-keepalive
  */
 
@@ -14,13 +14,21 @@ export { KeepAliveService } from './service.ts'
 export type { KeepAliveConfig, KeepAliveStatus } from './service.ts'
 export { KEEPALIVE_API_PREFIX, makeKeepAliveRoutes } from './routes.ts'
 
-/** 稳定的 cordis 插件名（与 cordis.patch.yml insert id 一致）。 */
+/** Stable cordis plugin name (matches the cordis.patch.yml insert id). */
 export const name = 'wsl-keepalive'
 
-/** 挂载前必须就绪的服务。 */
+/** Services that must be ready before mounting. */
 export const inject = ['webServer']
 
-/** 注册保活服务与其 API 路由。 */
+/**
+ * Registers the keep-alive service and its API routes.
+ * Environment gate note: this plugin is only meaningful in a WSL environment. At mount time the
+ * service runs a WSL check inside `init()`; outside WSL it is refused into an error state — every
+ * /api/wsl-keepalive/* call returns that refusal reason (visible in the settings UI as
+ * "Unavailable: not a WSL environment..."), and a clear hint is printed to the service log.
+ * The routes are kept (rather than fully unmounted) so the browser half can retrieve and display
+ * the refusal reason.
+ */
 export function apply(ctx: ContextLike, config: KeepAliveConfig = {}): void {
   const service = new KeepAliveService(ctx, config)
 
@@ -30,7 +38,11 @@ export function apply(ctx: ContextLike, config: KeepAliveConfig = {}): void {
   const routes = makeKeepAliveRoutes(service)
   ctx.effect(
     () => {
-      const disposers = routes.map((route) => webServer.register(route))
+      const disposers: Array<() => unknown> = []
+      for (const route of routes) {
+        const dispose = webServer.register(route)
+        if (typeof dispose === 'function') disposers.push(dispose as () => unknown)
+      }
       return () => {
         for (const dispose of disposers) dispose()
       }

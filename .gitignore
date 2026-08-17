@@ -4,7 +4,7 @@ lib/
 
 # --- TypeScript / tsdown 增量缓存 ---
 *.tsbuildinfo
-
+.pnpm-tmp
 # --- 编辑器 / 系统 ---
 .vscode/
 .idea/

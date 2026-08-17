@@ -1,7 +1,7 @@
 import { clientBundle } from './shared/tsdown.client.ts'
 
-// 源码已不 import 任何 @deepseek-ai/*，tsdown 默认把 @deepseek-ai/cordis 保持
-// external（shared 助手的默认值），无需额外声明外部引用。
+// The source no longer imports any @deepseek-ai/*; tsdown keeps @deepseek-ai/cordis
+// external by default (the shared helper's default), so no explicit external is needed.
 export default clientBundle('wsl-keepalive', [
   'src/index.ts',
 ])

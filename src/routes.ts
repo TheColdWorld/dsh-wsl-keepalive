@@ -1,31 +1,32 @@
 /**
- * wsl-keepalive HTTP 路由 — 浏览器半边通过同源 JSON 端点与 Host 通信：
- * GET  /api/wsl-keepalive/status — 查询状态（running/PID/发行版）
- * POST /api/wsl-keepalive/set    — body { enabled: boolean } 切换保活
- * 不 import node:http，只用本地最小结构类型。
+ * wsl-keepalive HTTP routes — the browser half communicates with the Host
+ * through same-origin JSON endpoints:
+ * GET  /api/wsl-keepalive/status — query status (running/PID/distro)
+ * POST /api/wsl-keepalive/set    — body { enabled: boolean } toggles keep-alive
+ * Does not import node:http, only local minimal structural types.
  * @module wsl-keepalive/routes
  */
 
 import type { IncomingMessageLike, ServerResponseLike, WebRouteLike } from './types.ts'
 import type { KeepAliveService } from './service.ts'
 
-/** 浏览器端 API 基路径。 */
+/** API base path for the browser side. */
 export const KEEPALIVE_API_PREFIX = '/api/wsl-keepalive'
 
-/** 写一条 JSON 响应。 */
+/** Write a JSON response. */
 function json(res: ServerResponseLike, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
 }
 
-/** 校验方法，不匹配则回 405。 */
+/** Validate the request method; reply 405 on mismatch. */
 function requireMethod(req: IncomingMessageLike, res: ServerResponseLike, method: string): boolean {
   if (req.method === method) return true
   json(res, 405, { ok: false, error: 'method-not-allowed' })
   return false
 }
 
-/** 读取请求体（小 JSON）。 */
+/** Read the request body (small JSON). */
 function readBody(req: IncomingMessageLike): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = ''
@@ -35,7 +36,7 @@ function readBody(req: IncomingMessageLike): Promise<string> {
   })
 }
 
-/** 构建完整的保活路由族。 */
+/** Build the full keep-alive route family. */
 export function makeKeepAliveRoutes(service: KeepAliveService): WebRouteLike[] {
   return [
     {
@@ -60,7 +61,7 @@ export function makeKeepAliveRoutes(service: KeepAliveService): WebRouteLike[] {
             const parsed = JSON.parse(body || '{}') as { enabled?: unknown }
             enabled = parsed.enabled === true
           } catch {
-            // 忽略坏 JSON，按关闭处理
+            // ignore malformed JSON, treat as disabled
           }
           return service.set(enabled)
         }).then(

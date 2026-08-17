@@ -1,5 +1,10 @@
 # wsl-keepalive — WSL 保活开关插件
 
+[中文](README.md) | [English](README.eng.md)
+> [!IMPORTANT]
+> **这是非官方第三方项目。** 本项目并非 DeepSeek 官方产品，不由 DeepSeek 开发、发布、背书或提供支持，也不代表 DeepSeek 的立场。`DeepSeek`、`DeepSeek Harness`、`dsh` 及相关名称、标识和商标归其各自权利人所有。关于保活的问题请提交到本仓库，不要联系 DeepSeek 官方支持。
+> 本插件完全由 AI 生成，以MIT协议进行分发
+
 在 **DSH WebUI** 的设置里提供「保活」开关，用于防止 WSL 发行版因空闲被 Windows 自动关闭。
 切换开关时，由 DSH 宿主机执行 dbus-daemon 的启动 / 停止 / 查询，并将当前 dbus-daemon 的 PID 显示在设置界面。
 
@@ -15,6 +20,7 @@
 | 精确停止 | 关闭时仅对内存记录/检测到的 dbus-daemon PID 逐个 `kill`，不无差别终止所有 dbus-daemon |
 | 自动探测 wsl.exe | `wsl-exec-path` 未配置时，自动探测 `/mnt/c/Windows/System32/wsl.exe`，存在则写入配置 |
 | 配置持久化 | 配置存于 `~/.dsh/wsl-keepalive.json`（与 dsh-ssh 插件同目录），跨重启/跨会话保留 |
+| 本地化显示 | WebUI 显示文本支持中文（zh-cn）与英文（en），默认/回退为英文 |
 
 ## 二、要求（前置条件）
 
@@ -46,21 +52,28 @@
 
 ## 四、安装
 
-使用 DSH 官方插件安装方式 `dsh plugin --profile web add`（与 dsh-balance-meter 相同）。
+### 方式一：使用dsh plugin add安装
+
+内容仓库位于 `https://github.com/TheColdWorld/dsh-wsl-keepalive.git`，可通过仓库地址直接安装：
 
 ```bash
-# 1. 进入本包目录
-cd wsl-keepalive-static
+# 1. 通过仓库地址直接安装
+dsh plugin --profile web add "github:TheColdWorld/dsh-wsl-keepalive"
+#    或使用显式 git 地址：
+#    dsh plugin --profile web add "git+https://github.com/TheColdWorld/dsh-wsl-keepalive.git"
 
-# 2. 安装构建依赖并构建（产出 lib/index.js 与 lib/client.js）
-pnpm build              # 等价于 tsc -b && tsdown
+# 2. 重启 DSH
+```
 
-# 3. 安装进 web profile
+### 方式二：本地构建
+
+```bash
+git clone https://github.com/TheColdWorld/dsh-wsl-keepalive.git
+cd dsh-wsl-keepalive
+pnpm install            # 安装构建依赖
+pnpm build              # 构建产出 lib/index.js 与 lib/client.js
 dsh plugin --profile web add link:$(pwd)
-#    等价于：把本包加入 ~/.dsh/profiles/web/package.json
-#    的 dependencies 与 dsh.profile.bundles，并执行 pnpm install
-
-# 4. 重启 DSH
+# 之后重启 dsh
 ```
 
 重启完成后，在 WebUI「设置 → General」即可看到「保活」开关。
@@ -88,7 +101,8 @@ wsl-keepalive-static/
 ├── tsconfig.json           # TypeScript 构建配置
 ├── tsdown.config.ts        # tsdown 构建入口
 ├── cordis.patch.yml        # 插件行声明（dsh plugin add 时注入）
-├── README.md               # 本文档
+├── README.md               # 本文档（中文原版）
+├── README.eng.md           # 本文档（英文翻译）
 ├── shared/                 # 通用构建辅助
 └── src/
     ├── types.ts            # 本地最小结构类型（唯一的宿主交互面）
@@ -98,6 +112,7 @@ wsl-keepalive-static/
     └── client/
         ├── index.ts        # Client 模块：注册「设置 → General」开关行
         ├── KeepAliveToggle.tsx
+        ├── i18n.ts           # 本地化：en / zh-cn，fallback 为 en
         ├── keepalive.module.css
         └── css-modules.d.ts
 ```

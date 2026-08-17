@@ -1,21 +1,26 @@
 /**
- * wsl-keepalive browser half — 在「设置 → General」注册「保活」开关行，
- * 通过同源 /api/wsl-keepalive/* JSON 端点读取/切换状态（静态插件用 fetch，
- * 代替动态插件的 host.call）。不 import @deepseek-ai/*，只用本地结构类型。
+ * wsl-keepalive browser half — registers a "Keep-Alive" toggle row under
+ * "Settings → General", reading/toggling state through the same-origin
+ * /api/wsl-keepalive/* JSON endpoints (static plugins use fetch instead of the
+ * dynamic plugin's host.call). Does not import @deepseek-ai/*, only local
+ * structural types.
  * @module wsl-keepalive/client
  */
 
 import type { ClientContextLike, SlotsLike } from '../types.ts'
-import { KeepAliveToggle } from './KeepAliveToggle.tsx'
+import { KeepAliveToggle, type KeepAliveToggleProps } from './KeepAliveToggle.tsx'
 
 export { KeepAliveToggle } from './KeepAliveToggle.tsx'
 
-/** 必需服务：slots（设置行的注入面）。 */
+/** Required service: slots (injection surface for settings rows). */
 export const inject = ['slots']
 
 /**
- * 把「保活」开关注册进 General 设置分区。
- * @param ctx - client 根上下文。
+ * Registers the "Keep-Alive" toggle into the General settings section.
+ * The locale/i18n service (when available) is passed into the component so the
+ * settings text can follow the DSH UI language; otherwise the component falls
+ * back to `<html lang>` / browser language / English.
+ * @param ctx - the client root context.
  */
 export function apply(ctx: ClientContextLike): void {
   ctx.inject(['slots'], (scope: ClientContextLike) => {
@@ -26,9 +31,20 @@ export function apply(ctx: ClientContextLike): void {
         name: 'settings.general.item',
         id: 'wsl-keepalive',
         order: 30,
-        inject: (): Record<string, never> => ({}),
+        inject: (): KeepAliveToggleProps => ({
+          localeService: getLocaleService(scope),
+        }),
       },
       KeepAliveToggle,
     ), 'wsl-keepalive: settings row')
   })
+}
+
+/** Best-effort lookup of the DSH locale/i18n service; missing services must not break the plugin. */
+function getLocaleService(scope: ClientContextLike): unknown {
+  try {
+    return scope.get('locale') ?? scope.get('i18n')
+  } catch {
+    return undefined
+  }
 }

@@ -1,21 +1,23 @@
 /**
- * wsl-keepalive host service — 保活核心逻辑（由动态插件版迁移）：
- * 读取/写入 ~/.dsh/wsl-keepalive.json，内存记录 dbus-daemon PID，
- * 执行 status/start/stop 三条命令。不 import 外部包，只用本地结构类型。
+ * wsl-keepalive host service — the keep-alive core logic (migrated from the
+ * dynamic-plugin version). Reads/writes ~/.dsh/wsl-keepalive.json, records the
+ * dbus-daemon PIDs in memory, and runs the status/start/stop commands.
+ * Does not import external packages, only local structural types.
  * @module wsl-keepalive/service
  */
 
 import type { ContextLike, FsLike, ShellLike } from './types.ts'
+import { checkWslEnv } from './env.ts'
 
-/** 插件配置：可由 cordis.patch.yml 行配置覆盖，文件值优先。 */
+/** Plugin config: can be overridden by the cordis.patch.yml row; file values take precedence. */
 export interface KeepAliveConfig {
-  /** 目标 WSL 发行版名；非空时启动命令追加 `-d <name>`。 */
+  /** Target WSL distro name; when non-empty the start command appends `-d <name>`. */
   wslDistName?: string
-  /** wsl.exe 绝对路径；未配置时启动期自动探测并写入配置文件。 */
+  /** Absolute path to wsl.exe; auto-detected and written into the config on startup when unset. */
   wslExecPath?: string
 }
 
-/** 返回给浏览器的保活状态（纯 JSON 标量）。 */
+/** Keep-alive status returned to the browser (pure JSON scalars). */
 export interface KeepAliveStatus {
   running: boolean
   pids: string[]
@@ -26,7 +28,7 @@ export interface KeepAliveStatus {
   error: string | null
 }
 
-/** 一次命令执行的结果（已提取标量，不含运行时对象）。 */
+/** Result of one command execution (scalars extracted, no runtime objects). */
 interface CommandResult {
   exitCode: number | null
   stdout: string
@@ -34,7 +36,7 @@ interface CommandResult {
   infraError: string | null
 }
 
-/** 启动期解析结果。 */
+/** Startup parse result. */
 type Startup = { wslExecPath: string; distName: string } | { error: string }
 
 export class KeepAliveService {
@@ -43,16 +45,22 @@ export class KeepAliveService {
   private readonly CONFIG_NAME = 'wsl-keepalive.json'
   private readonly FALLBACK_WSL_EXE = '/mnt/c/Windows/System32/wsl.exe'
 
-  /** 内存中记录的 dbus-daemon PID（每次 status 查询后更新）。 */
+  /** dbus-daemon PIDs recorded in memory (updated after each status query). */
   private lastPids: string[] = []
 
-  /** 启动序列（解析 wsl-exec-path / wsl-dist-name），只执行一次。 */
+  /** Startup sequence (resolve wsl-exec-path / wsl-dist-name), run once. */
   private readonly startup: Promise<Startup>
 
   constructor(ctx: ContextLike, config: KeepAliveConfig = {}) {
     this.ctx = ctx
     this.config = config
     this.startup = this.init()
+    void this.startup.then((startup) => {
+      if ('error' in startup) {
+        // Non-WSL environment or wsl.exe unreachable: log a clear reason and enter the error state.
+        console.error(`[wsl-keepalive] cannot run: ${startup.error}`)
+      }
+    })
   }
 
   private get shell(): ShellLike | undefined {
@@ -82,7 +90,7 @@ export class KeepAliveService {
     }
   }
 
-  /** 配置路径：~/.dsh/wsl-keepalive.json（与 dsh-ssh 插件一致）。 */
+  /** Config path: ~/.dsh/wsl-keepalive.json (consistent with the dsh-ssh plugin). */
   private async configPath(): Promise<string> {
     const r = await this.runCommand('printenv HOME', 5000)
     const home = r.stdout.trim()
@@ -138,10 +146,21 @@ export class KeepAliveService {
   }
 
   /**
-   * 启动序列：解析 wsl-exec-path / wsl-dist-name。
-   * 若 wsl-exec-path 未配置：检查回退路径，存在则写入配置，否则报错（服务进入错误态）。
+   * Startup sequence: first run the environment check (refuse if not WSL), then
+   * resolve wsl-exec-path / wsl-dist-name. When wsl-exec-path is unset, check the
+   * fallback path; if present write it into the config, otherwise error (the
+   * service enters an error state).
    */
   private async init(): Promise<Startup> {
+    // 1) Environment gate: refuse immediately outside WSL with a human-readable reason.
+    const env = await checkWslEnv(this.shell, this.fsService)
+    if (!env.ok) {
+      const error = env.reason ?? `Not a WSL environment; this plugin cannot run (${env.detail})`
+      console.error(`[wsl-keepalive] refused to run: ${error}`)
+      return { error }
+    }
+
+    // 2) Resolve wsl-exec-path / wsl-dist-name.
     const cfg = await this.loadConfig()
     let exe = cfg['wsl-exec-path'] || this.config.wslExecPath || ''
     if (!exe) {
@@ -149,9 +168,9 @@ export class KeepAliveService {
         exe = this.FALLBACK_WSL_EXE
         cfg['wsl-exec-path'] = exe
         await this.saveConfig(cfg)
-        console.log('wsl-exec-path 未配置，已自动写入:', exe)
+        console.log('wsl-exec-path was unset; auto-wrote:', exe)
       } else {
-        const error = `未配置 wsl-exec-path 且 ${this.FALLBACK_WSL_EXE} 不存在，无法启动保活`
+        const error = `wsl-exec-path unset and ${this.FALLBACK_WSL_EXE} does not exist; cannot start keep-alive`
         console.error(error)
         return { error }
       }
@@ -166,7 +185,7 @@ export class KeepAliveService {
     return { running: r.exitCode === 0 && pids.length > 0, pids, infraError: r.infraError }
   }
 
-  /** 查询保活状态（含内存记录的 PID）。 */
+  /** Query keep-alive status (including the PIDs recorded in memory). */
   async status(): Promise<KeepAliveStatus> {
     const init = await this.startup
     const status = await this.queryStatus()
@@ -182,21 +201,22 @@ export class KeepAliveService {
   }
 
   /**
-   * 停止保活：对内存中记录的 dbus-daemon PID 逐个精确 kill。
-   * 只停本插件记录/检测到的进程，不用 pkill 无差别终止所有 dbus-daemon。
+   * Stop keep-alive: kill each dbus-daemon PID recorded in memory one by one.
+   * Only stops the processes recorded/detected by this plugin; it never uses
+   * pkill to indiscriminately terminate every dbus-daemon.
    */
   private async stopPids(): Promise<void> {
     const targets = this.lastPids.length > 0
       ? this.lastPids
       : (await this.queryStatus()).pids
     if (targets.length === 0) return
-    // 逐 PID 精确终止；对已被系统 dbus 使用的 PID 无效时静默忽略（避免误伤）。
+    // Terminate precisely per PID; silently ignore PIDs no longer valid to avoid harming system dbus.
     for (const pid of targets) {
       await this.runCommand(`kill ${pid} 2>/dev/null; true`, 10000)
     }
   }
 
-  /** 切换保活：enabled=true 启动（查重后执行 wsl.exe --exec dbus-launch true），false 停止（精确停止记录的 PID）。 */
+  /** Toggle keep-alive: enabled=true starts (dedupes, then runs wsl.exe --exec dbus-launch true), false stops (precisely stops recorded PIDs). */
   async set(enabled: boolean): Promise<KeepAliveStatus> {
     const init = await this.startup
     if ('error' in init) {
@@ -223,7 +243,7 @@ export class KeepAliveService {
         distro: label,
         wslExecPath: init.wslExecPath,
         distName: init.distName,
-        error: r.exitCode === 0 ? null : `启动失败 (exit ${String(r.exitCode)}): ${r.stderr.trim()}`,
+        error: r.exitCode === 0 ? null : `start failed (exit ${String(r.exitCode)}): ${r.stderr.trim()}`,
       }
     }
 

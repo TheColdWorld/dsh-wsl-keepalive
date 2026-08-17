@@ -1,6 +1,6 @@
 {
   "name": "wsl-keepalive",
-  "description": "WSL 保活开关（静态插件版）：在 WebUI「设置 → General」提供 dbus-daemon 保活开关，Host 通过 /api/wsl-keepalive/* 提供 status/set，配置存于 ~/.dsh/wsl-keepalive.json。",
+  "description": "WSL keep-alive toggle (static plugin): provides a dbus-daemon keep-alive toggle under WebUI Settings → General; the Host exposes status/set via /api/wsl-keepalive/* and the config is stored in ~/.dsh/wsl-keepalive.json.",
   "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
