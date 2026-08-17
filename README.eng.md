@@ -21,7 +21,7 @@ When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` an
 | Precise stop | On disable, `kill`s only the dbus-daemon PIDs recorded in memory / detected, without indiscriminately killing all dbus-daemon processes |
 | Auto-detect wsl.exe | When `wsl-exec-path` is not configured, auto-detects `/mnt/c/Windows/System32/wsl.exe` and writes it to the config if present |
 | Config persistence | Config is stored at `~/.dsh/wsl-keepalive.json` (same directory as the dsh-ssh plugin), persists across restarts / sessions |
-| Localized UI | WebUI display text supports Chinese (`zh-cn`) and English (`en`), defaulting/falling back to English |
+| Localized UI | WebUI display text supports Chinese (`zh`) and English (`en`), defaulting/falling back to English; the dictionary is registered into the DSH locale service and follows DSH UI language switches in real time |
 
 ## 2. Requirements (Prerequisites)
 
@@ -71,7 +71,7 @@ dsh plugin --profile web add "github:TheColdWorld/dsh-wsl-keepalive"
 ```bash
 git clone https://github.com/TheColdWorld/dsh-wsl-keepalive.git
 cd dsh-wsl-keepalive
-pnpm install            # install build deps
+pnpm install .          # install build deps
 pnpm build              # produce lib/index.js and lib/client.js
 dsh plugin --profile web add link:$(pwd)
 # restart dsh after this
@@ -91,7 +91,7 @@ The config file `~/.dsh/wsl-keepalive.json` is retained; delete it manually if n
 ## 5. How It Works
 
 - **Communication**: The plugin Host exposes two JSON endpoints `/api/wsl-keepalive/status` and `/api/wsl-keepalive/set` via `ctx.webServer.register`; the browser half calls them with `fetch`.
-- **Minimal external references**: The source depends only on `react` (required at runtime by the browser half); the host services (shell/fs/webServer/slots) are accessed via local structural types in `src/types.ts` + `ctx.get()`, type-erased at build time, with zero extra runtime dependencies.
+- **Explicit service references**: Host services (webServer/shell/fs) and browser services (slots/locale) are accessed as typed properties via the real `@deepseek-ai/*` contracts — the `Context` from `@deepseek-ai/cordis` plus the type augmentations from `dsh-host-webserver`/`dsh-shell`/`dsh-fs`/`dsh-client-*` — e.g. `ctx.webServer`, `ctx.shell`, `ctx.fs`, `scope.slots`, instead of the former implicit string-keyed `ctx.get('...')` list against local structural types (`src/types.ts`). Types are erased at build time; runtime dependencies come from the DSH `@deepseek-ai/*` packages.
 - **PID tracking**: dbus-daemon PIDs are recorded by the Host in memory after each query and live for the plugin's lifetime; the real state is re-queried after a restart.
 
 ## 6. Directory Structure
@@ -106,14 +106,13 @@ wsl-keepalive-static/
 ├── README.eng.md           # this document (English translation)
 ├── shared/                 # common build helpers
 └── src/
-    ├── types.ts            # local minimal structural types (the only host interface)
-    ├── index.ts            # Host plugin entry: registers /api/wsl-keepalive/* routes
+    ├── index.ts            # Host plugin entry: registers /api/wsl-keepalive/* routes (explicit webServer/shell/fs refs)
     ├── service.ts          # keep-alive core: config read/write, PID tracking, status/start/stop
     ├── routes.ts           # HTTP routes (status / set)
     └── client/
         ├── index.ts        # Client module: registers the "Settings → General" toggle row
         ├── KeepAliveToggle.tsx
-        ├── i18n.ts           # localization: en / zh-cn, fallback to en
+        ├── i18n.ts           # localization dictionaries (en / zh), registered into the DSH locale service
         ├── keepalive.module.css
         └── css-modules.d.ts
 ```

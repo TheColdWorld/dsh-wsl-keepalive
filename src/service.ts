@@ -2,11 +2,15 @@
  * wsl-keepalive host service — the keep-alive core logic (migrated from the
  * dynamic-plugin version). Reads/writes ~/.dsh/wsl-keepalive.json, records the
  * dbus-daemon PIDs in memory, and runs the status/start/stop commands.
- * Does not import external packages, only local structural types.
+ * Service references are explicit: `ctx.shell` and `ctx.fs` come from the real
+ * `@deepseek-ai/dsh-shell` / `@deepseek-ai/dsh-fs` contracts that augment the
+ * cordis `Context`.
  * @module wsl-keepalive/service
  */
 
-import type { ContextLike, FsLike, ShellLike } from './types.ts'
+import { Context } from '@deepseek-ai/cordis'
+import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
+import type { ShellExecutor, ShellExecRequest } from '@deepseek-ai/dsh-shell'
 import { checkWslEnv } from './env.ts'
 
 /** Plugin config: can be overridden by the cordis.patch.yml row; file values take precedence. */
@@ -39,8 +43,11 @@ interface CommandResult {
 /** Startup parse result. */
 type Startup = { wslExecPath: string; distName: string } | { error: string }
 
+/** Shell service seam: only the resolve/run subset this plugin uses. */
+type ShellRunner = Pick<ShellExecutor, 'resolve' | 'run'>
+
 export class KeepAliveService {
-  private readonly ctx: ContextLike
+  private readonly ctx: Context
   private readonly config: KeepAliveConfig
   private readonly CONFIG_NAME = 'wsl-keepalive.json'
   private readonly FALLBACK_WSL_EXE = '/mnt/c/Windows/System32/wsl.exe'
@@ -51,7 +58,7 @@ export class KeepAliveService {
   /** Startup sequence (resolve wsl-exec-path / wsl-dist-name), run once. */
   private readonly startup: Promise<Startup>
 
-  constructor(ctx: ContextLike, config: KeepAliveConfig = {}) {
+  constructor(ctx: Context, config: KeepAliveConfig = {}) {
     this.ctx = ctx
     this.config = config
     this.startup = this.init()
@@ -63,12 +70,14 @@ export class KeepAliveService {
     })
   }
 
-  private get shell(): ShellLike | undefined {
-    return this.ctx.get('shell') as ShellLike | undefined
+  /** Explicit typed reference to the `ctx.shell` service. */
+  private get shell(): ShellExecutor | undefined {
+    return this.ctx.shell
   }
 
-  private get fsService(): FsLike | undefined {
-    return this.ctx.get('fs') as FsLike | undefined
+  /** Explicit typed reference to the `ctx.fs` service. */
+  private get fsService(): FileSystem | undefined {
+    return this.ctx.fs
   }
 
   private async runCommand(command: string, timeoutMs: number): Promise<CommandResult> {
@@ -76,8 +85,9 @@ export class KeepAliveService {
     if (shell === undefined) {
       return { exitCode: null, stdout: '', stderr: '', infraError: 'shell service unavailable' }
     }
+    const runner: ShellRunner = shell
     try {
-      const spec = shell.resolve({ command, timeoutMs, stdoutMaxBytes: 65536 })
+      const spec = shell.resolve({ command, timeoutMs, stdoutMaxBytes: 65536 } satisfies ShellExecRequest)
       const res = await shell.run(spec)
       return {
         exitCode: res.exitCode,
@@ -102,7 +112,7 @@ export class KeepAliveService {
     if (this.fsService === undefined) return empty
     const path = await this.configPath()
     try {
-      const target = await this.fsService.resolve(path)
+      const target: FsTarget = await this.fsService.resolve(path)
       const text = await this.fsService.readText(target)
       const parsed = JSON.parse(text || '{}') as Record<string, unknown>
       return {
@@ -118,7 +128,7 @@ export class KeepAliveService {
     if (this.fsService === undefined) return false
     const path = await this.configPath()
     try {
-      const target = await this.fsService.resolve(path)
+      const target: FsTarget = await this.fsService.resolve(path)
       await this.fsService.writeText(target, JSON.stringify(cfg, null, 2))
       return true
     } catch (e) {

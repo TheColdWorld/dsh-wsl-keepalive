@@ -3,31 +3,33 @@
  * through same-origin JSON endpoints:
  * GET  /api/wsl-keepalive/status — query status (running/PID/distro)
  * POST /api/wsl-keepalive/set    — body { enabled: boolean } toggles keep-alive
- * Does not import node:http, only local minimal structural types.
+ * The route shape is the real `WebRoute` from `@deepseek-ai/dsh-host-webserver`
+ * (an explicit reference, no local structural stub).
  * @module wsl-keepalive/routes
  */
 
-import type { IncomingMessageLike, ServerResponseLike, WebRouteLike } from './types.ts'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { KeepAliveService } from './service.ts'
 
 /** API base path for the browser side. */
 export const KEEPALIVE_API_PREFIX = '/api/wsl-keepalive'
 
 /** Write a JSON response. */
-function json(res: ServerResponseLike, status: number, body: unknown): void {
+function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
 }
 
 /** Validate the request method; reply 405 on mismatch. */
-function requireMethod(req: IncomingMessageLike, res: ServerResponseLike, method: string): boolean {
+function requireMethod(req: IncomingMessage, res: ServerResponse, method: string): boolean {
   if (req.method === method) return true
   json(res, 405, { ok: false, error: 'method-not-allowed' })
   return false
 }
 
 /** Read the request body (small JSON). */
-function readBody(req: IncomingMessageLike): Promise<string> {
+function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = ''
     req.on('data', (chunk: unknown) => { body += String(chunk) })
@@ -37,12 +39,12 @@ function readBody(req: IncomingMessageLike): Promise<string> {
 }
 
 /** Build the full keep-alive route family. */
-export function makeKeepAliveRoutes(service: KeepAliveService): WebRouteLike[] {
+export function makeKeepAliveRoutes(service: KeepAliveService): WebRoute[] {
   return [
     {
       kind: 'exact',
       path: `${KEEPALIVE_API_PREFIX}/status`,
-      handler: (req: IncomingMessageLike, res: ServerResponseLike): void => {
+      handler: (req: IncomingMessage, res: ServerResponse): void => {
         if (!requireMethod(req, res, 'GET')) return
         Promise.resolve(service.status()).then(
           (value) => json(res, 200, value),
@@ -53,7 +55,7 @@ export function makeKeepAliveRoutes(service: KeepAliveService): WebRouteLike[] {
     {
       kind: 'exact',
       path: `${KEEPALIVE_API_PREFIX}/set`,
-      handler: (req: IncomingMessageLike, res: ServerResponseLike): void => {
+      handler: (req: IncomingMessage, res: ServerResponse): void => {
         if (!requireMethod(req, res, 'POST')) return
         readBody(req).then((body) => {
           let enabled = false

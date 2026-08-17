@@ -2,49 +2,67 @@
  * wsl-keepalive browser half — registers a "Keep-Alive" toggle row under
  * "Settings → General", reading/toggling state through the same-origin
  * /api/wsl-keepalive/* JSON endpoints (static plugins use fetch instead of the
- * dynamic plugin's host.call). Does not import @deepseek-ai/*, only local
- * structural types.
+ * dynamic plugin's host.call). Service references are explicit: the client
+ * scope's `slots` and `locale` come from the real `@deepseek-ai/*` client
+ * contracts that augment the cordis `Context` (no string-keyed `ctx.get`
+ * casts).
+ *
+ * Localization follows the official DSH pattern: the dictionary is registered
+ * with `ctx.locale.register('wsl-keepalive', …)` and the slot entry declares
+ * `locale: 'wsl-keepalive'`, so the renderer injects a `t` seat into the
+ * component and re-derives it (new function reference) on every language
+ * switch — the row text follows the DSH UI language automatically.
  * @module wsl-keepalive/client
  */
 
-import type { ClientContextLike, SlotsLike } from '../types.ts'
-import { KeepAliveToggle, type KeepAliveToggleProps } from './KeepAliveToggle.tsx'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only merges: `ctx.slots`/`ctx.locale` become typed references, the
+// `settings.general.item` slot key is declared by the settings domain base,
+// and the `wsl-keepalive` dictionary namespace is merged into LocaleNamespaceMap.
+import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { KeepAliveToggle, type KeepAliveToggleInjected } from './KeepAliveToggle.tsx'
+import { en, zh, type KeepAliveKey } from './i18n.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** wsl-keepalive row copy (title/subtitle/switch). */
+    'wsl-keepalive': KeepAliveKey
+  }
+}
+
+/** Dictionary namespace owned by this plugin. */
+const NS = 'wsl-keepalive'
 
 export { KeepAliveToggle } from './KeepAliveToggle.tsx'
+export type { KeepAliveToggleInjected, KeepAliveToggleProps } from './KeepAliveToggle.tsx'
 
-/** Required service: slots (injection surface for settings rows). */
-export const inject = ['slots']
+/** Required services: slots (injection surface for settings rows); locale for the dictionary + t seat. */
+export const inject = ['slots', 'locale']
 
 /**
  * Registers the "Keep-Alive" toggle into the General settings section.
- * The locale/i18n service (when available) is passed into the component so the
- * settings text can follow the DSH UI language; otherwise the component falls
- * back to `<html lang>` / browser language / English.
+ * The framework injects the `t` translate seat (declared via `locale: NS`),
+ * so the row text follows the DSH UI language on every switch.
  * @param ctx - the client root context.
  */
-export function apply(ctx: ClientContextLike): void {
-  ctx.inject(['slots'], (scope: ClientContextLike) => {
-    const slots = scope.get('slots') as SlotsLike | undefined
+export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'wsl-keepalive: dictionaries')
+
+  ctx.inject(['slots'], (scope: ClientContext) => {
+    // Explicit typed reference to the slots service (no `get('slots')` cast).
+    const slots = scope.slots
     if (slots === undefined) return
     scope.effect(() => slots.register(
       {
         name: 'settings.general.item',
         id: 'wsl-keepalive',
         order: 30,
-        inject: (): KeepAliveToggleProps => ({
-          localeService: getLocaleService(scope),
-        }),
+        locale: NS,
+        inject: (): KeepAliveToggleInjected => ({}),
       },
       KeepAliveToggle,
     ), 'wsl-keepalive: settings row')
   })
-}
-
-/** Best-effort lookup of the DSH locale/i18n service; missing services must not break the plugin. */
-function getLocaleService(scope: ClientContextLike): unknown {
-  try {
-    return scope.get('locale') ?? scope.get('i18n')
-  } catch {
-    return undefined
-  }
 }

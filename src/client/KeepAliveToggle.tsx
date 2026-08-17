@@ -2,18 +2,23 @@
  * The "Keep-Alive" toggle row on the settings page: on mount it fetches
  * /api/wsl-keepalive/status to initialize, and clicking the switch POSTs to
  * /api/wsl-keepalive/set to toggle; the subtitle displays the dbus-daemon PID
- * and the distro. UI strings are localized (en / zh-cn, fallback en).
+ * and the distro. UI strings come from the framework-injected `t` translate
+ * seat (declared via the entry's `locale:` namespace), so they follow the DSH
+ * UI language automatically on every switch.
  * @module wsl-keepalive/client/KeepAliveToggle
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { useI18n } from './i18n.ts'
+import type { KeepAliveKey } from './i18n.ts'
 import css from './keepalive.module.css'
 
-/** Optional props injected by the slots registration. */
-export interface KeepAliveToggleProps {
-  /** DSH locale/i18n service when the host provides one; otherwise browser/HTML lang is used. */
-  localeService?: unknown
+/** Business face produced by the entry's inject factory (the `t` seat is framework-injected separately). */
+export interface KeepAliveToggleInjected {}
+
+/** Full component props: the framework `t` seat (PropsLocale) plus the injected business face. */
+export interface KeepAliveToggleProps extends KeepAliveToggleInjected {
+  /** Translate a dictionary key of the `wsl-keepalive` namespace. */
+  t: (key: KeepAliveKey, params?: Record<string, unknown>) => string
 }
 
 /** Host keep-alive API (same-origin JSON endpoint). */
@@ -40,8 +45,7 @@ async function keepAliveFetch<T>(path: string, init?: RequestInit): Promise<T> {
  * Keep-alive toggle component (a settings row, self-drawn whole row:
  * title + subtitle + switch).
  */
-export function KeepAliveToggle(props: unknown = {}): React.ReactElement {
-  const { t } = useI18n((props as KeepAliveToggleProps | null | undefined)?.localeService)
+export function KeepAliveToggle({ t }: KeepAliveToggleProps): React.ReactElement {
   const [state, setState] = useState<{
     running: boolean
     loading: boolean

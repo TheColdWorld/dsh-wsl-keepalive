@@ -20,7 +20,7 @@
 | 精确停止 | 关闭时仅对内存记录/检测到的 dbus-daemon PID 逐个 `kill`，不无差别终止所有 dbus-daemon |
 | 自动探测 wsl.exe | `wsl-exec-path` 未配置时，自动探测 `/mnt/c/Windows/System32/wsl.exe`，存在则写入配置 |
 | 配置持久化 | 配置存于 `~/.dsh/wsl-keepalive.json`（与 dsh-ssh 插件同目录），跨重启/跨会话保留 |
-| 本地化显示 | WebUI 显示文本支持中文（zh-cn）与英文（en），默认/回退为英文 |
+| 本地化显示 | WebUI 显示文本支持中文（zh）与英文（en），默认/回退为英文；字典注册进 DSH locale 服务，随 DSH UI 语言切换实时更新 |
 
 ## 二、要求（前置条件）
 
@@ -70,7 +70,7 @@ dsh plugin --profile web add "github:TheColdWorld/dsh-wsl-keepalive"
 ```bash
 git clone https://github.com/TheColdWorld/dsh-wsl-keepalive.git
 cd dsh-wsl-keepalive
-pnpm install            # 安装构建依赖
+pnpm install .          # 安装构建依赖
 pnpm build              # 构建产出 lib/index.js 与 lib/client.js
 dsh plugin --profile web add link:$(pwd)
 # 之后重启 dsh
@@ -90,7 +90,7 @@ dsh plugin --profile web remove wsl-keepalive
 ## 五、工作原理
 
 - **通信机制**：插件 Host 通过 `ctx.webServer.register` 提供 `/api/wsl-keepalive/status` 与 `/api/wsl-keepalive/set` 两个 JSON 端点，浏览器半边通过 `fetch` 调用。
-- **外部引用最小化**：源码仅依赖 `react`（浏览器半边运行时必需）；宿主服务（shell/fs/webServer/slots）通过 `src/types.ts` 的本地结构类型 + `ctx.get()` 访问，构建时类型擦除，运行时零额外依赖。
+- **显性服务引用**：宿主服务（webServer/shell/fs）与浏览器服务（slots/locale）通过引入真实的 `@deepseek-ai/*` 契约（`@deepseek-ai/cordis` 的 `Context` 及 `dsh-host-webserver`/`dsh-shell`/`dsh-fs`/`dsh-client-*` 的类型增强）直接以类型化属性访问，如 `ctx.webServer`、`ctx.shell`、`ctx.fs`、`scope.slots`，替代原先基于字符串 `ctx.get('...')` 与本地结构类型（`src/types.ts`）的隐式引用；构建时类型擦除，运行时依赖来自 DSH 的 `@deepseek-ai/*` 包。
 - **PID 记录**：dbus-daemon PID 由 Host 在每次查询后记录于内存，随插件生命周期存续；重启后重新查询真实状态。
 
 ## 六、目录结构
@@ -105,14 +105,13 @@ wsl-keepalive-static/
 ├── README.eng.md           # 本文档（英文翻译）
 ├── shared/                 # 通用构建辅助
 └── src/
-    ├── types.ts            # 本地最小结构类型（唯一的宿主交互面）
-    ├── index.ts            # Host 插件入口：注册 /api/wsl-keepalive/* 路由
+    ├── index.ts            # Host 插件入口：注册 /api/wsl-keepalive/* 路由（显式引用 webServer/shell/fs）
     ├── service.ts          # 保活核心：配置读写、PID 记录、status/start/stop
     ├── routes.ts           # HTTP 路由（status / set）
     └── client/
         ├── index.ts        # Client 模块：注册「设置 → General」开关行
         ├── KeepAliveToggle.tsx
-        ├── i18n.ts           # 本地化：en / zh-cn，fallback 为 en
+        ├── i18n.ts           # 本地化字典（en / zh），注册进 DSH locale 服务
         ├── keepalive.module.css
         └── css-modules.d.ts
 ```

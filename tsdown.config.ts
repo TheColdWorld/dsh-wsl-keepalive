@@ -1,7 +1,10 @@
 import { clientBundle } from './shared/tsdown.client.ts'
 
-// The source no longer imports any @deepseek-ai/*; tsdown keeps @deepseek-ai/cordis
-// external by default (the shared helper's default), so no explicit external is needed.
+// The host half imports `@deepseek-ai/cordis` (the `Context` value/type) at runtime;
+// tsdown keeps it external by default (the shared helper's default) and it resolves
+// from the dsh profile tree at load time. The other @deepseek-ai/* references are
+// type-only augmentations (webServer/shell/fs/slots/locale) and are erased at build.
+// No explicit external list is needed.
 export default clientBundle('wsl-keepalive', [
   'src/index.ts',
 ])

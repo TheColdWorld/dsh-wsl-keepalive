@@ -4,10 +4,14 @@
  * dbus-daemon to keep the distro from going idle), so it is meaningless in a
  * non-WSL environment (plain Linux distro / container / macOS, etc.).
  * It should refuse at install/mount time with a clear reason.
+ *
+ * Uses the real `@deepseek-ai/dsh-shell` and `@deepseek-ai/dsh-fs` service types
+ * (explicit references) rather than local structural stubs.
  * @module wsl-keepalive/env
  */
 
-import type { FsLike, ShellLike } from './types.ts'
+import type { ShellExecutor, ShellExecRequest } from '@deepseek-ai/dsh-shell'
+import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 
 /** Environment check result: when ok=false, reason is always a human-readable message. */
 export interface WslEnvResult {
@@ -24,11 +28,14 @@ interface CommandOutcome {
   infraError: string | null
 }
 
+/** Shell service seam: only the resolve/run subset this plugin uses. */
+type ShellRunner = Pick<ShellExecutor, 'resolve' | 'run'>
+
 /** Run a single shell command (captures errors, does not throw). */
-async function probe(shell: ShellLike | undefined, command: string, timeoutMs: number): Promise<CommandOutcome> {
+async function probe(shell: ShellRunner | undefined, command: string, timeoutMs: number): Promise<CommandOutcome> {
   if (shell === undefined) return { exitCode: null, stdout: '', infraError: 'shell service unavailable' }
   try {
-    const spec = shell.resolve({ command, timeoutMs, stdoutMaxBytes: 65536 })
+    const spec = shell.resolve({ command, timeoutMs, stdoutMaxBytes: 65536 } satisfies ShellExecRequest)
     const res = await shell.run(spec)
     return {
       exitCode: res.exitCode,
@@ -41,10 +48,10 @@ async function probe(shell: ShellLike | undefined, command: string, timeoutMs: n
 }
 
 /** fs probe: whether a path exists. */
-async function fsExists(fsService: FsLike | undefined, path: string): Promise<boolean> {
+async function fsExists(fsService: FileSystem | undefined, path: string): Promise<boolean> {
   if (fsService === undefined) return false
   try {
-    const target = await fsService.resolve(path)
+    const target: FsTarget = await fsService.resolve(path)
     await fsService.readText(target)
     return true
   } catch {
@@ -58,11 +65,11 @@ async function fsExists(fsService: FsLike | undefined, path: string): Promise<bo
  * /etc/wsl.conf exists, or /mnt/c exists.
  */
 export async function checkWslEnv(
-  shell: { run: ShellLike['run']; resolve: ShellLike['resolve'] } | undefined,
-  fsService: FsLike | undefined,
+  shell: ShellRunner | undefined,
+  fsService: FileSystem | undefined,
 ): Promise<WslEnvResult> {
   // 1) Kernel signature (both WSL1 and WSL2 kernel versions contain "microsoft") — the most authoritative.
-  const uname = await probe(shell as ShellLike | undefined, 'uname -r', 10000)
+  const uname = await probe(shell, 'uname -r', 10000)
   const kernel = uname.stdout.trim()
   const kernelIsWsl = /microsoft/i.test(kernel)
 
