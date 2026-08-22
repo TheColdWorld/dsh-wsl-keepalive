@@ -1,16 +1,21 @@
 /**
- * wsl-keepalive host service — the keep-alive core logic (migrated from the
- * dynamic-plugin version). Reads/writes ~/.dsh/wsl-keepalive.json, records the
- * dbus-daemon PIDs in memory, and runs the status/start/stop commands.
- * Service references are explicit: `ctx.shell` and `ctx.fs` come from the real
- * `@deepseek-ai/dsh-shell` / `@deepseek-ai/dsh-fs` contracts that augment the
- * cordis `Context`.
+ * wsl-keepalive host service — the keep-alive core logic. Reads/writes
+ * ~/.dsh/wsl-keepalive.json, records the dbus-daemon PIDs in memory, and runs
+ * the status/start/stop commands against wsl.exe.
+ *
+ * Execution model: this is a **host admin action**, so it runs through Node's
+ * own `child_process` / `fs` directly (the dsh host process is Node running
+ * inside WSL), NOT through the model-facing `ctx.shell`/`ctx.fs` services.
+ * Those are per-session/agent-plane services that a top-level host row may not
+ * see and that run under the workspace sandbox, which denies the `wsl.exe` /
+ * `kill` operations this plugin needs. Raw Node primitives are always available
+ * on the host plane and are never sandboxed.
  * @module wsl-keepalive/service
  */
 
-import { Context } from '@deepseek-ai/cordis'
-import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
-import type { ShellExecutor, ShellExecRequest } from '@deepseek-ai/dsh-shell'
+import { exec, type ExecException } from 'node:child_process'
+import { existsSync, promises as fsp } from 'node:fs'
+import { homedir } from 'node:os'
 import { checkWslEnv } from './env.ts'
 
 /** Plugin config: can be overridden by the cordis.patch.yml row; file values take precedence. */
@@ -43,11 +48,7 @@ interface CommandResult {
 /** Startup parse result. */
 type Startup = { wslExecPath: string; distName: string } | { error: string }
 
-/** Shell service seam: only the resolve/run subset this plugin uses. */
-type ShellRunner = Pick<ShellExecutor, 'resolve' | 'run'>
-
 export class KeepAliveService {
-  private readonly ctx: Context
   private readonly config: KeepAliveConfig
   private readonly CONFIG_NAME = 'wsl-keepalive.json'
   private readonly FALLBACK_WSL_EXE = '/mnt/c/Windows/System32/wsl.exe'
@@ -55,65 +56,42 @@ export class KeepAliveService {
   /** dbus-daemon PIDs recorded in memory (updated after each status query). */
   private lastPids: string[] = []
 
-  /** Startup sequence (resolve wsl-exec-path / wsl-dist-name), run once. */
-  private readonly startup: Promise<Startup>
+  /** Startup sequence (resolve wsl-exec-path / wsl-dist-name), run once, lazily. */
+  private startup: Promise<Startup> | null = null
 
-  constructor(ctx: Context, config: KeepAliveConfig = {}) {
-    this.ctx = ctx
+  constructor(config: KeepAliveConfig = {}) {
     this.config = config
-    this.startup = this.init()
-    void this.startup.then((startup) => {
-      if ('error' in startup) {
-        // Non-WSL environment or wsl.exe unreachable: log a clear reason and enter the error state.
-        console.error(`[wsl-keepalive] cannot run: ${startup.error}`)
-      }
-    })
   }
 
-  /** Explicit typed reference to the `ctx.shell` service. */
-  private get shell(): ShellExecutor | undefined {
-    return this.ctx.shell
-  }
-
-  /** Explicit typed reference to the `ctx.fs` service. */
-  private get fsService(): FileSystem | undefined {
-    return this.ctx.fs
-  }
-
-  private async runCommand(command: string, timeoutMs: number): Promise<CommandResult> {
-    const shell = this.shell
-    if (shell === undefined) {
-      return { exitCode: null, stdout: '', stderr: '', infraError: 'shell service unavailable' }
+  /**
+   * Run the startup sequence once, on first use (status/set), not at mount.
+   */
+  private getStartup(): Promise<Startup> {
+    if (this.startup === null) {
+      this.startup = this.init()
+      void this.startup.then((startup) => {
+        if ('error' in startup) {
+          console.error(`[wsl-keepalive] cannot run: ${startup.error}`)
+        }
+      })
     }
-    const runner: ShellRunner = shell
-    try {
-      const spec = shell.resolve({ command, timeoutMs, stdoutMaxBytes: 65536 } satisfies ShellExecRequest)
-      const res = await shell.run(spec)
-      return {
-        exitCode: res.exitCode,
-        stdout: (res.stdout && res.stdout.text) || '',
-        stderr: (res.stderr && res.stderr.text) || '',
-        infraError: null,
-      }
-    } catch (e) {
-      return { exitCode: null, stdout: '', stderr: '', infraError: String((e && (e as Error).message) || e) }
-    }
+    return this.startup
   }
 
   /** Config path: ~/.dsh/wsl-keepalive.json (consistent with the dsh-ssh plugin). */
-  private async configPath(): Promise<string> {
-    const r = await this.runCommand('printenv HOME', 5000)
-    const home = r.stdout.trim()
+  private configPath(): string {
+    const home = process.env.HOME || homedir()
     return home ? `${home}/.dsh/${this.CONFIG_NAME}` : this.CONFIG_NAME
   }
 
+  private defaultConfig(): Record<string, string> {
+    return { 'wsl-dist-name': '', 'wsl-exec-path': '' }
+  }
+
   private async loadConfig(): Promise<Record<string, string>> {
-    const empty: Record<string, string> = { 'wsl-dist-name': '', 'wsl-exec-path': '' }
-    if (this.fsService === undefined) return empty
-    const path = await this.configPath()
+    const empty = this.defaultConfig()
     try {
-      const target: FsTarget = await this.fsService.resolve(path)
-      const text = await this.fsService.readText(target)
+      const text = await fsp.readFile(this.configPath(), 'utf-8')
       const parsed = JSON.parse(text || '{}') as Record<string, unknown>
       return {
         'wsl-dist-name': typeof parsed['wsl-dist-name'] === 'string' ? parsed['wsl-dist-name'] : '',
@@ -125,11 +103,8 @@ export class KeepAliveService {
   }
 
   private async saveConfig(cfg: Record<string, string>): Promise<boolean> {
-    if (this.fsService === undefined) return false
-    const path = await this.configPath()
     try {
-      const target: FsTarget = await this.fsService.resolve(path)
-      await this.fsService.writeText(target, JSON.stringify(cfg, null, 2))
+      await fsp.writeFile(this.configPath(), JSON.stringify(cfg, null, 2), 'utf-8')
       return true
     } catch (e) {
       console.error('saveConfig failed:', String((e && (e as Error).message) || e))
@@ -137,9 +112,8 @@ export class KeepAliveService {
     }
   }
 
-  private async pathExists(p: string): Promise<boolean> {
-    const r = await this.runCommand(`test -e ${p} && echo yes`, 10000)
-    return r.stdout.trim() === 'yes'
+  private pathExists(p: string): boolean {
+    return existsSync(p)
   }
 
   private labelPromise: Promise<string> | null = null
@@ -147,23 +121,47 @@ export class KeepAliveService {
   private getLabel(): Promise<string> {
     if (this.labelPromise !== null) return this.labelPromise
     this.labelPromise = (async () => {
-      if (this.shell === undefined) return 'WSL'
-      const r = await this.runCommand('grep ^ID= /etc/os-release | cut -d= -f2', 10000)
-      const id = r.stdout.trim()
-      return id ? (id.charAt(0).toUpperCase() + id.slice(1)) : 'WSL'
+      try {
+        const osRelease = await fsp.readFile('/etc/os-release', 'utf-8')
+        const m = /^ID=(.*)$/m.exec(osRelease)
+        const id = m ? m[1].trim().replace(/"/g, '') : ''
+        return id ? (id.charAt(0).toUpperCase() + id.slice(1)) : 'WSL'
+      } catch {
+        return 'WSL'
+      }
     })()
     return this.labelPromise
   }
 
+  /** Run a command via the host's own shell (never sandboxed, host-plane). */
+  private runCommand(command: string, timeoutMs: number): Promise<CommandResult> {
+    return new Promise((resolve) => {
+      exec(command, { timeout: timeoutMs, maxBuffer: 64 * 1024 }, (error: ExecException | null, stdout, stderr) => {
+        if (error === null) {
+          resolve({ exitCode: 0, stdout: stdout ?? '', stderr: stderr ?? '', infraError: null })
+          return
+        }
+        // A string `code` means the process failed to spawn (missing binary,
+        // permission), i.e. an infra failure rather than a command result.
+        if (error.killed) {
+          resolve({ exitCode: null, stdout: stdout ?? '', stderr: stderr ?? '', infraError: `command killed after ${timeoutMs}ms` })
+        } else if (typeof error.code === 'string') {
+          resolve({ exitCode: null, stdout: stdout ?? '', stderr: stderr ?? '', infraError: `spawn failed: ${error.code}` })
+        } else {
+          resolve({ exitCode: typeof error.code === 'number' ? error.code : 1, stdout: stdout ?? '', stderr: stderr ?? '', infraError: null })
+        }
+      })
+    })
+  }
+
   /**
-   * Startup sequence: first run the environment check (refuse if not WSL), then
-   * resolve wsl-exec-path / wsl-dist-name. When wsl-exec-path is unset, check the
-   * fallback path; if present write it into the config, otherwise error (the
-   * service enters an error state).
+   * Startup sequence: first check the environment (refuse if not WSL), then
+   * resolve wsl-exec-path / wsl-dist-name. When wsl-exec-path is unset, check
+   * the fallback path; if present write it into the config, otherwise error.
    */
   private async init(): Promise<Startup> {
     // 1) Environment gate: refuse immediately outside WSL with a human-readable reason.
-    const env = await checkWslEnv(this.shell, this.fsService)
+    const env = checkWslEnv()
     if (!env.ok) {
       const error = env.reason ?? `Not a WSL environment; this plugin cannot run (${env.detail})`
       console.error(`[wsl-keepalive] refused to run: ${error}`)
@@ -174,7 +172,7 @@ export class KeepAliveService {
     const cfg = await this.loadConfig()
     let exe = cfg['wsl-exec-path'] || this.config.wslExecPath || ''
     if (!exe) {
-      if (await this.pathExists(this.FALLBACK_WSL_EXE)) {
+      if (this.pathExists(this.FALLBACK_WSL_EXE)) {
         exe = this.FALLBACK_WSL_EXE
         cfg['wsl-exec-path'] = exe
         await this.saveConfig(cfg)
@@ -197,7 +195,7 @@ export class KeepAliveService {
 
   /** Query keep-alive status (including the PIDs recorded in memory). */
   async status(): Promise<KeepAliveStatus> {
-    const init = await this.startup
+    const init = await this.getStartup()
     const status = await this.queryStatus()
     return {
       running: status.running,
@@ -212,15 +210,13 @@ export class KeepAliveService {
 
   /**
    * Stop keep-alive: kill each dbus-daemon PID recorded in memory one by one.
-   * Only stops the processes recorded/detected by this plugin; it never uses
-   * pkill to indiscriminately terminate every dbus-daemon.
+   * Only stops the processes recorded/detected by this plugin.
    */
   private async stopPids(): Promise<void> {
     const targets = this.lastPids.length > 0
       ? this.lastPids
       : (await this.queryStatus()).pids
     if (targets.length === 0) return
-    // Terminate precisely per PID; silently ignore PIDs no longer valid to avoid harming system dbus.
     for (const pid of targets) {
       await this.runCommand(`kill ${pid} 2>/dev/null; true`, 10000)
     }
@@ -228,7 +224,7 @@ export class KeepAliveService {
 
   /** Toggle keep-alive: enabled=true starts (dedupes, then runs wsl.exe --exec dbus-launch true), false stops (precisely stops recorded PIDs). */
   async set(enabled: boolean): Promise<KeepAliveStatus> {
-    const init = await this.startup
+    const init = await this.getStartup()
     if ('error' in init) {
       return { running: false, pids: [], pid: null, distro: 'WSL', wslExecPath: null, distName: null, error: init.error }
     }
@@ -245,6 +241,13 @@ export class KeepAliveService {
       if (r.infraError) {
         return { running: false, pids: [], pid: null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, error: r.infraError }
       }
+      if (r.exitCode !== 0) {
+        // Surface the exact reason (the command + stderr) so the failure is actionable.
+        const detail = r.stderr.trim() || r.stdout.trim() || '(no output)'
+        const message = `start failed: ${cmd} -> exit ${String(r.exitCode)}: ${detail}`
+        console.error(`[wsl-keepalive] ${message}`)
+        return { running: false, pids: [], pid: null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, error: message }
+      }
       const after = await this.queryStatus()
       return {
         running: after.running,
@@ -253,7 +256,7 @@ export class KeepAliveService {
         distro: label,
         wslExecPath: init.wslExecPath,
         distName: init.distName,
-        error: r.exitCode === 0 ? null : `start failed (exit ${String(r.exitCode)}): ${r.stderr.trim()}`,
+        error: null,
       }
     }
 

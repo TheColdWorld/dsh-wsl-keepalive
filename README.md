@@ -14,7 +14,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| 保活开关 | 「设置 → General」里新增「保活」行，拨动即可开启/关闭 WSL 保活 |
+| 保活开关 | 「设置 → 插件」里新增「保活」行，拨动即可开启/关闭 WSL 保活 |
 | 状态 / PID 显示 | 副标题实时显示 `已启用 · PID <dbus-daemon>` 或 `已停用`，并附发行版名（如 `已启用 · PID 498 · Arch`）|
 | 防重复启动 | 开启前先 `pgrep -x dbus-daemon` 查重，已在运行则直接返回，不重复拉起 |
 | 精确停止 | 关闭时仅对内存记录/检测到的 dbus-daemon PID 逐个 `kill`，不无差别终止所有 dbus-daemon |
@@ -76,7 +76,7 @@ dsh plugin --profile web add link:$(pwd)
 # 之后重启 dsh
 ```
 
-重启完成后，在 WebUI「设置 → General」即可看到「保活」开关。
+重启完成后，在 WebUI「设置 → 插件」即可看到「保活」开关。
 
 ### 卸载
 
@@ -109,7 +109,7 @@ wsl-keepalive-static/
     ├── service.ts          # 保活核心：配置读写、PID 记录、status/start/stop
     ├── routes.ts           # HTTP 路由（status / set）
     └── client/
-        ├── index.ts        # Client 模块：注册「设置 → General」开关行
+        ├── index.ts        # Client 模块：注册「设置 → 插件」下的本插件配置选项卡
         ├── KeepAliveToggle.tsx
         ├── i18n.ts           # 本地化字典（en / zh），注册进 DSH locale 服务
         ├── keepalive.module.css

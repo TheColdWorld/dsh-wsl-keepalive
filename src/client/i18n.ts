@@ -14,6 +14,7 @@
 
 /** Dictionary keys of the `wsl-keepalive` namespace (merged into LocaleNamespaceMap). */
 export type KeepAliveKey =
+  | 'nav'
   | 'title'
   | 'detecting'
   | 'unavailable'
@@ -21,25 +22,30 @@ export type KeepAliveKey =
   | 'disabled'
   | 'ariaLabel'
   | 'cannotReachHost'
+  | 'retry'
 
 /** English dictionary (the default / fallback). */
 export const en: Record<KeepAliveKey, string> = {
-  title: 'Keep-Alive',
+  nav: 'WSL Keep-Alive',
+  title: 'WSL Keep-Alive',
   detecting: 'Detecting…',
   unavailable: 'Unavailable:',
   enabled: 'Enabled',
   disabled: 'Disabled',
   ariaLabel: 'WSL keep-alive toggle',
   cannotReachHost: 'Cannot reach host /api/wsl-keepalive',
+  retry: 'The toggle stays clickable so you can retry.',
 }
 
 /** Chinese (zh) dictionary. */
 export const zh: Record<KeepAliveKey, string> = {
-  title: '保活',
+  nav: 'WSL保活',
+  title: 'WSL保活',
   detecting: '检测中…',
   unavailable: '不可用：',
   enabled: '已启用',
   disabled: '已停用',
   ariaLabel: 'WSL 保活开关',
   cannotReachHost: '无法访问宿主 /api/wsl-keepalive',
+  retry: '开关仍可点击重试。',
 }

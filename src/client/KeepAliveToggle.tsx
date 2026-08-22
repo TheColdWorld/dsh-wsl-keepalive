@@ -103,7 +103,9 @@ export function KeepAliveToggle({ t }: KeepAliveToggleProps): React.ReactElement
   let statusText = t('detecting')
   if (!state.loading) {
     if (state.error) {
-      // Refusal errors such as non-WSL: surface the reason clearly (from the host init gate).
+      // Refusal / host errors (non-WSL, wsl.exe missing, command failure, …):
+      // surface the reason clearly, but do NOT lock the switch — it stays
+      // clickable so the user can retry after fixing the cause.
       statusText = `${t('unavailable')} ${state.error}`
     } else if (state.running) {
       statusText = `${t('enabled')}${state.pid ? ` · PID ${state.pid}` : ''}${state.distro ? ` · ${state.distro}` : ''}`
@@ -116,14 +118,17 @@ export function KeepAliveToggle({ t }: KeepAliveToggleProps): React.ReactElement
     <div className={css.row}>
       <div className={css.info}>
         <div className={css.title}>{t('title')}</div>
-        <div className={`${css.sub}${state.error ? ` ${css.subError}` : ''}`} title={statusText}>{statusText}</div>
+        <div className={`${css.sub}${state.error ? ` ${css.subError}` : ''}`} title={statusText}>
+          {statusText}
+          {state.error && !state.loading && !state.busy ? <span className={css.subHint}> · {t('retry')}</span> : null}
+        </div>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={state.running}
         aria-label={t('ariaLabel')}
-        disabled={state.loading || state.busy || !!state.error}
+        disabled={state.loading || state.busy}
         className={`${css.switch}${state.running ? ` ${css.switchOn}` : ''}`}
         onClick={onToggle}
       >

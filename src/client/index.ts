@@ -1,11 +1,11 @@
 /**
- * wsl-keepalive browser half — registers a "Keep-Alive" toggle row under
- * "Settings → General", reading/toggling state through the same-origin
- * /api/wsl-keepalive/* JSON endpoints (static plugins use fetch instead of the
- * dynamic plugin's host.call). Service references are explicit: the client
- * scope's `slots` and `locale` come from the real `@deepseek-ai/*` client
- * contracts that augment the cordis `Context` (no string-keyed `ctx.get`
- * casts).
+ * wsl-keepalive browser half — registers a "Keep-Alive" configuration tab
+ * under "Settings → Plugins" (the plugin's own config surface), reading and
+ * toggling state through the same-origin /api/wsl-keepalive/* JSON endpoints
+ * (static plugins use fetch instead of the dynamic plugin's host.call).
+ * Service references are explicit: the client scope's `slots` and `locale`
+ * come from the real `@deepseek-ai/*` client contracts that augment the
+ * cordis `Context` (no string-keyed `ctx.get` casts).
  *
  * Localization follows the official DSH pattern: the dictionary is registered
  * with `ctx.locale.register('wsl-keepalive', …)` and the slot entry declares
@@ -17,7 +17,7 @@
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only merges: `ctx.slots`/`ctx.locale` become typed references, the
-// `settings.general.item` slot key is declared by the settings domain base,
+// `settings.plugins.tab` slot key is declared by the settings domain base,
 // and the `wsl-keepalive` dictionary namespace is merged into LocaleNamespaceMap.
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -42,27 +42,34 @@ export type { KeepAliveToggleInjected, KeepAliveToggleProps } from './KeepAliveT
 export const inject = ['slots', 'locale']
 
 /**
- * Registers the "Keep-Alive" toggle into the General settings section.
+ * Registers the Keep-Alive toggle as this plugin's own configuration tab
+ * under Settings → Plugins (rather than a row in Settings → General).
  * The framework injects the `t` translate seat (declared via `locale: NS`),
- * so the row text follows the DSH UI language on every switch.
+ * so the tab label and row copy follow the DSH UI language on every switch.
+ *
+ * The Plugins section declares the `settings.plugins.tab` slot; the tab only
+ * becomes clickable once the Plugins section is shown. Registering goes
+ * through `ctx.slots.inject(key, …)`: it runs only once the declaration is
+ * committed and is owned by the caller's fiber (plugin unload cancels the
+ * wait and removes any active contribution). This is the current
+ * SlotRegistry pattern (the same one the harness's own settings plugins use);
+ * the older `ctx.inject(['slots'], scope => scope.effect(() => slots.register(…)))`
+ * form did not wait for the slot declaration.
  * @param ctx - the client root context.
  */
 export function apply(ctx: ClientContext): void {
+  const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'wsl-keepalive: dictionaries')
 
-  ctx.inject(['slots'], (scope: ClientContext) => {
-    // Explicit typed reference to the slots service (no `get('slots')` cast).
-    const slots = scope.slots
-    if (slots === undefined) return
-    scope.effect(() => slots.register(
-      {
-        name: 'settings.general.item',
-        id: 'wsl-keepalive',
-        order: 30,
-        locale: NS,
-        inject: (): KeepAliveToggleInjected => ({}),
-      },
-      KeepAliveToggle,
-    ), 'wsl-keepalive: settings row')
-  })
+  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register(
+    {
+      name: 'settings.plugins.tab',
+      id: 'wsl-keepalive',
+      order: 10,
+      label: () => t('nav'),
+      locale: NS,
+      inject: (): KeepAliveToggleInjected => ({}),
+    },
+    KeepAliveToggle,
+  ))
 }

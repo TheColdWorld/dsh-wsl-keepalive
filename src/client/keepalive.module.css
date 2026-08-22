@@ -36,6 +36,12 @@
   overflow: hidden;
 }
 
+.subHint {
+  color: var(--dsw-alias-label-secondary, #6e7781);
+  font-style: italic;
+  white-space: normal;
+}
+
 .switch {
   position: relative;
   width: 40px;

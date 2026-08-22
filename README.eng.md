@@ -15,7 +15,7 @@ When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` an
 
 | Capability | Description |
 | --- | --- |
-| Keep-Alive toggle | Adds a **Keep-Alive** row under **Settings → General**; flip it to enable/disable WSL keep-alive |
+| Keep-Alive toggle | Adds a **Keep-Alive** row under **Settings → Plugins**; flip it to enable/disable WSL keep-alive |
 | Status / PID display | The subtitle shows `Enabled · PID <dbus-daemon>` or `Disabled` in real time, plus the distro name (e.g. `Enabled · PID 498 · Arch`) |
 | Duplicate-start protection | Runs `pgrep -x dbus-daemon` before enabling; if already running, returns immediately without starting a duplicate |
 | Precise stop | On disable, `kill`s only the dbus-daemon PIDs recorded in memory / detected, without indiscriminately killing all dbus-daemon processes |
@@ -77,7 +77,7 @@ dsh plugin --profile web add link:$(pwd)
 # restart dsh after this
 ```
 
-After the restart, the **Keep-Alive** toggle appears under **Settings → General** in the WebUI.
+After the restart, the **Keep-Alive** toggle appears under **Settings → Plugins** in the WebUI.
 
 ### Uninstall
 
@@ -110,7 +110,7 @@ wsl-keepalive-static/
     ├── service.ts          # keep-alive core: config read/write, PID tracking, status/start/stop
     ├── routes.ts           # HTTP routes (status / set)
     └── client/
-        ├── index.ts        # Client module: registers the "Settings → General" toggle row
+        ├── index.ts        # Client module: registers the plugin config tab under "Settings → Plugins"
         ├── KeepAliveToggle.tsx
         ├── i18n.ts           # localization dictionaries (en / zh), registered into the DSH locale service
         ├── keepalive.module.css
