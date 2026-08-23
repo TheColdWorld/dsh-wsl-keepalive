@@ -22,7 +22,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { KeepAliveToggle, type KeepAliveToggleInjected } from './KeepAliveToggle.tsx'
+import { KeepAliveConfig, type KeepAliveToggleInjected } from './KeepAliveConfig.tsx'
 import { en, zh, type KeepAliveKey } from './i18n.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -35,8 +35,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin. */
 const NS = 'wsl-keepalive'
 
-export { KeepAliveToggle } from './KeepAliveToggle.tsx'
-export type { KeepAliveToggleInjected, KeepAliveToggleProps } from './KeepAliveToggle.tsx'
+export { KeepAliveConfig } from './KeepAliveConfig.tsx'
+export type { KeepAliveToggleInjected, KeepAliveToggleProps } from './KeepAliveConfig.tsx'
 
 /** Required services: slots (injection surface for settings rows); locale for the dictionary + t seat. */
 export const inject = ['slots', 'locale']
@@ -70,6 +70,6 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: (): KeepAliveToggleInjected => ({}),
     },
-    KeepAliveToggle,
+    KeepAliveConfig,
   ))
 }

@@ -20,7 +20,8 @@ When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` an
 | Duplicate-start protection | Runs `pgrep -x dbus-daemon` before enabling; if already running, returns immediately without starting a duplicate |
 | Precise stop | On disable, `kill`s only the dbus-daemon PIDs recorded in memory / detected, without indiscriminately killing all dbus-daemon processes |
 | Auto-detect wsl.exe | When `wsl-exec-path` is not configured, auto-detects `/mnt/c/Windows/System32/wsl.exe` and writes it to the config if present |
-| Config persistence | Config is stored at `~/.dsh/wsl-keepalive.json` (same directory as the dsh-ssh plugin), persists across restarts / sessions |
+| Command-config validation | The distro/user/wsl.exe items under **Command configuration** carry descriptions plus runtime validation — a failed check reverts the change and shows the reason in red, a successful one persists |
+| Config persistence | Config is stored at `${DSH_HOME:-~/.dsh}/wsl-keepalive.json`, persists across restarts / sessions |
 | Localized UI | WebUI display text supports Chinese (`zh`) and English (`en`), defaulting/falling back to English; the dictionary is registered into the DSH locale service and follows DSH UI language switches in real time |
 
 ## 2. Requirements (Prerequisites)
@@ -37,19 +38,23 @@ The machine running DSH Web must satisfy:
 
 ## 3. Configuration `~/.dsh/wsl-keepalive.json`
 
-Read at plugin startup; missing fields or a missing file are treated as empty values, and the file is auto-created / written when needed.
+Read at plugin startup; missing fields or a missing file are treated as empty values, and the file is auto-created / written when needed. The path prefers `${DSH_HOME}/wsl-keepalive.json` (falling back to `~/.dsh/wsl-keepalive.json` when `DSH_HOME` is unset), matching the previous config location.
 
 ```json
 {
   "wsl-dist-name": "",
+  "wsl-user-name": "",
   "wsl-exec-path": "/mnt/c/Windows/System32/wsl.exe"
 }
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `wsl-dist-name` | string | The target distro name. When **non-empty**, the start command appends `-d ${wsl-dist-name}`; when **empty**, the default distro is used |
-| `wsl-exec-path` | string | Absolute path to `wsl.exe` on the Linux filesystem. When **empty**, `/mnt/c/Windows/System32/wsl.exe` is auto-detected at startup and written to the config if present; if neither exists it errors and enters an error state |
+| `wsl-dist-name` | string | The target distro name. When **non-empty**, the start command appends `-d ${wsl-dist-name}`; when **empty**, the default distro is used. Checked at runtime — if the distro does not exist the change is reverted and an error is shown |
+| `wsl-user-name` | string | The user that runs the keep-alive process inside the distro. When **non-empty**, the start command appends `--user ${wsl-user-name}`; when **empty**, the distro default user is used. Checked at runtime — if the user does not exist the change is reverted and an error is shown |
+| `wsl-exec-path` | string | Absolute path to `wsl.exe` on the Linux filesystem. When **empty**, `/mnt/c/Windows/System32/wsl.exe` is auto-detected at startup and written to the config if present; if neither exists it errors and enters an error state. Checked at runtime — if the file does not exist the change is reverted and an error is shown |
+
+On the WSL Keep-Alive tab under **Settings → Plugins**, the three command-config items each carry a description plus runtime validation: editing commits on blur/Enter, a failed check reverts that change and shows the reason in red (distro missing / user missing / wsl.exe missing), and a successful check persists to the config file above.
 
 ## 4. Installation
 

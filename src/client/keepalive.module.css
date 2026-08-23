@@ -1,47 +1,77 @@
-.row {
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 0 12px;
+}
+
+/* A logical configuration area. The mockup's black frame is a grouping marker
+   only and is not rendered here: we use a light neutral card instead. */
+.card {
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, #ffffff);
+  padding: 14px 16px;
+}
+
+.cardTitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary, #1f2328);
+}
+
+/* Toggle row */
+.toggleRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 0;
 }
 
-.info {
+.toggleInfo {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.title {
+.toggleTitle {
   font-size: 14px;
   line-height: 20px;
   color: var(--dsw-alias-label-primary, #1f2328);
 }
 
-.sub {
+.toggleSub {
   font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary, #6e7781);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.subError {
+/* Status / PID line */
+.statusRow {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary, #1f2328);
+}
+
+.statusRow .pid {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Red command output / failure reason */
+.error {
   color: var(--dsw-alias-label-danger, #cf222e);
   white-space: normal;
   word-break: break-all;
-  max-height: 3.2em;
-  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
 }
 
-.subHint {
-  color: var(--dsw-alias-label-secondary, #6e7781);
-  font-style: italic;
-  white-space: normal;
-}
-
+/* Switch */
 .switch {
   position: relative;
   width: 40px;
@@ -79,4 +109,66 @@
 
 .switchOn .knob {
   transform: translateX(18px);
+}
+
+/* Command-config field list */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary, #1f2328);
+}
+
+.fieldDesc {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary, #6e7781);
+}
+
+.fieldInput {
+  margin-top: 2px;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 18px;
+  padding: 6px 8px;
+  color: var(--dsw-alias-label-primary, #1f2328);
+  background: var(--dsw-alias-bg-layer-2, #eaeef2);
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 6px;
+  outline: none;
+}
+
+.fieldInput:focus {
+  border-color: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.fieldInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fieldInputError {
+  border-color: var(--dsw-alias-label-danger, #cf222e);
+}
+
+.fieldError {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-danger, #cf222e);
+  white-space: normal;
+  word-break: break-all;
 }

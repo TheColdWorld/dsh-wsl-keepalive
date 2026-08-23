@@ -19,7 +19,8 @@
 | 防重复启动 | 开启前先 `pgrep -x dbus-daemon` 查重，已在运行则直接返回，不重复拉起 |
 | 精确停止 | 关闭时仅对内存记录/检测到的 dbus-daemon PID 逐个 `kill`，不无差别终止所有 dbus-daemon |
 | 自动探测 wsl.exe | `wsl-exec-path` 未配置时，自动探测 `/mnt/c/Windows/System32/wsl.exe`，存在则写入配置 |
-| 配置持久化 | 配置存于 `~/.dsh/wsl-keepalive.json`（与 dsh-ssh 插件同目录），跨重启/跨会话保留 |
+| 命令配置校验 | 「命令配置」区域的发行版/用户/wsl.exe 三项带描述与运行时校验，校验失败撤销修改并以红色提示原因，反之落盘 |
+| 配置持久化 | 配置存于 `${DSH_HOME:-~/.dsh}/wsl-keepalive.json`，跨重启/跨会话保留 |
 | 本地化显示 | WebUI 显示文本支持中文（zh）与英文（en），默认/回退为英文；字典注册进 DSH locale 服务，随 DSH UI 语言切换实时更新 |
 
 ## 二、要求（前置条件）
@@ -36,19 +37,23 @@
 
 ## 三、配置 `~/.dsh/wsl-keepalive.json`
 
-插件启动时读取；字段缺失或文件缺失时按空值处理，并在需要时自动创建 / 写入。
+插件启动时读取；字段缺失或文件缺失时按空值处理，并在需要时自动创建 / 写入。配置路径优先使用 `${DSH_HOME}/wsl-keepalive.json`（`DSH_HOME` 未设置时回退到 `~/.dsh/wsl-keepalive.json`），与旧版配置地址一致。
 
 ```json
 {
   "wsl-dist-name": "",
+  "wsl-user-name": "",
   "wsl-exec-path": "/mnt/c/Windows/System32/wsl.exe"
 }
 ```
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `wsl-dist-name` | 字符串 | 目标发行版命名。**非空**时启动命令追加 `-d ${wsl-dist-name}`；**为空**时使用默认发行版 |
-| `wsl-exec-path` | 字符串 | `wsl.exe` 在 Linux 文件系统下的绝对路径。**为空**时启动期自动探测 `/mnt/c/Windows/System32/wsl.exe`，存在则写入配置；两者皆无则报错进入错误态 |
+| `wsl-dist-name` | 字符串 | 目标发行版命名。**非空**时启动命令追加 `-d ${wsl-dist-name}`；**为空**时使用默认发行版。设置后做运行时检查，若该发行版不存在则撤销修改并提示错误 |
+| `wsl-user-name` | 字符串 | 运行保活进程的用户名（在指定发行版内）。**非空**时启动命令追加 `--user ${wsl-user-name}`；**为空**时使用该发行版的默认用户。设置后做运行时检查，若该用户不存在则撤销修改并提示错误 |
+| `wsl-exec-path` | 字符串 | `wsl.exe` 在 Linux 文件系统下的绝对路径。**为空**时启动期自动探测 `/mnt/c/Windows/System32/wsl.exe`，存在则写入配置；两者皆无则报错进入错误态。设置后做运行时检查，若文件不存在则撤销修改并提示错误 |
+
+在「设置 → 插件」的 WSL保活 页签中，「命令配置」区域的三个配置项均带有描述与运行时校验：编辑后失焦/回车即提交，校验失败会撤销该次修改并以红色提示具体原因（发行版不存在 / 用户不存在 / wsl.exe 不存在）；校验成功则落盘到上述配置文件。
 
 ## 四、安装
 
