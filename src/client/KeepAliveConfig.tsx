@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { KeepAliveKey } from './i18n.ts'
 import css from './keepalive.module.css'
 
@@ -28,10 +29,7 @@ import css from './keepalive.module.css'
 export interface KeepAliveToggleInjected {}
 
 /** Full component props: the framework `t` seat (PropsLocale) plus the injected business face. */
-export interface KeepAliveToggleProps extends KeepAliveToggleInjected {
-  /** Translate a dictionary key of the `wsl-keepalive` namespace. */
-  t: (key: KeepAliveKey, params?: Record<string, unknown>) => string
-}
+export interface KeepAliveToggleProps extends KeepAliveToggleInjected, PropsLocale<'wsl-keepalive'> {}
 
 /** Host keep-alive API (same-origin JSON endpoint). */
 interface KeepAliveHttpStatus {

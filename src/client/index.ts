@@ -15,11 +15,17 @@
  * @module wsl-keepalive/client
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// The client runtime root became the cordis `Context` directly in DSH
+// 0.1.2-rc.1 (the dedicated runtime package was removed); the client
+// half now types its context as `Context` from `@deepseek-ai/cordis`. `ctx.slots`
+// (the SlotRegistry service) is provided and typed by the ui-renderer package,
+// so its module augmentation must be pulled in alongside the settings base.
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only merges: `ctx.slots`/`ctx.locale` become typed references, the
 // `settings.plugins.tab` slot key is declared by the settings domain base,
 // and the `wsl-keepalive` dictionary namespace is merged into LocaleNamespaceMap.
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { KeepAliveConfig, type KeepAliveToggleInjected } from './KeepAliveConfig.tsx'
