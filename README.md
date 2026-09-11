@@ -94,29 +94,38 @@ dsh plugin --profile web remove wsl-keepalive
 
 ## 五、工作原理
 
-- **通信机制**：插件 Host 通过 `ctx.webServer.register` 提供 `/api/wsl-keepalive/status` 与 `/api/wsl-keepalive/set` 两个 JSON 端点，浏览器半边通过 `fetch` 调用。
-- **显性服务引用**：宿主服务（webServer/shell/fs）与浏览器服务（slots/locale）通过引入真实的 `@deepseek-ai/*` 契约（`@deepseek-ai/cordis` 的 `Context` 及 `dsh-host-webserver`/`dsh-shell`/`dsh-fs`/`dsh-client-*` 的类型增强）直接以类型化属性访问，如 `ctx.webServer`、`ctx.shell`、`ctx.fs`、`scope.slots`，替代原先基于字符串 `ctx.get('...')` 与本地结构类型（`src/types.ts`）的隐式引用；构建时类型擦除，运行时依赖来自 DSH 的 `@deepseek-ai/*` 包。
-- **PID 记录**：dbus-daemon PID 由 Host 在每次查询后记录于内存，随插件生命周期存续；重启后重新查询真实状态。
+- **通信机制**：插件 Host 提供 `/api/wsl-keepalive/status`、`/api/wsl-keepalive/set`、`/api/wsl-keepalive/config`（GET/POST）四个同源 JSON 端点，浏览器半边通过 `fetch` 调用。
+- **可选 webServer 载体（DSH ≥ 0.1.5）**：0.1.5 起 HTTP 载体 `webServer` 是**可选**能力（Electron / worker 等非 HTTP 外壳不提供它，同一套客户端栈仍要能加载）。因此本插件不把 `webServer` 写进行的静态 `inject`（那会让该行永久 `pending` 并让启动激活审计失败），而是**无条件**用 `ctx.inject(['webServer'], …)` 取得载体（与 DSH 自带的 `dsh-client-connection` 的 `/api` 路由同形）：该调用创建一个子 fiber，载体已绑定或稍后绑定都会在就绪时运行它，插件行自身始终照常激活。路由注册写在子 fiber 的 `ctx.effect` 内，随载体卸载而撤销、随其重新提供而重建；载体缺失时仅路由 404。注意不要在插件行自己的 ctx 上读 `ctx.webServer`——cordis 4 对未声明 inject 的服务属性访问会直接抛 `cannot get property "webServer" without inject`。
+- **显性服务引用**：宿主侧只引入真正使用的契约——`@deepseek-ai/cordis` 的 `Context` 与 `@deepseek-ai/dsh-host-webserver` 的 `WebRoute`（其 `declare module` 增强使 `ctx.webServer` 成为带类型的属性）；浏览器侧引入 `dsh-client-ui-renderer`（`ctx.slots`）、`dsh-client-ui-settings`（`settings.plugins.tab` 槽位声明）、`dsh-client-ui-slots`（`PropsLocale`/`LocaleNamespaceMap`）、`dsh-client-locale`（`ctx.locale`）。**不使用** `ctx.shell`/`ctx.fs`：保活命令在宿主平面直接用 Node 的 `child_process`/`fs` 执行，因此 `dsh-shell`/`dsh-fs` 不再作为依赖引入（v0.1.2-rc.1 时代曾以空 `import type {}` 引入，仅为类型增强，构建时即被擦除）。
+- **保活状态**：dbus-daemon PID 由 Host 在每次查询后记录于内存，随插件生命周期存续；重启后重新查询真实状态。
+- **错误分类显示（两类失败绝不混为一谈）**：
+  | 类别 | 触发条件 | 界面表现 |
+  | --- | --- | --- |
+  | **端点不可达**（`endpoint`） | 宿主根本没有 `/api/wsl-keepalive/*` 这条路由：该外壳不提供 HTTP 载体（Electron / worker 载体）、插件行未激活，或网络层直接失败。包含“SPA 兜底把未知路径用 `index.html` + HTTP 200 回包”这种伪成功 | 副标题：`不可用：宿主未挂载 /api/wsl-keepalive/* 端点（响应：HTTP …）`；状态行：红色“常见原因：该外壳不提供 HTTP 载体 / 插件行未激活”+ 灰色“开关仍可点击重试”与原始终点细节 |
+  | **宿主拒绝**（`host`） | 请求到达了宿主，宿主明确拒绝：非 WSL 环境、wsl.exe 路径缺失、命令执行失败 | 副标题：按 DSH UI 语言本地化的原因（`当前不是 WSL 环境（内核：…）` 等）；状态行：灰色显示宿主原始细节（英文说明 / 命令行 / 退出码） |
+  
+  为此 `/api/wsl-keepalive/status` 与 `/set` 的响应新增两个字段：`errorCode`（稳定本地化码，由客户端字典 `src/client/i18n.ts` 拥有）与 `errorParams`（模板参数）；原有 `error` 保留为**技术细节**，不再作为界面主文案。
 
 ## 六、目录结构
 
 ```
-wsl-keepalive-static/
+wsl-keepalive/
 ├── package.json            # dsh.bundle.patch + dsh.client 声明
 ├── tsconfig.json           # TypeScript 构建配置
 ├── tsdown.config.ts        # tsdown 构建入口
 ├── cordis.patch.yml        # 插件行声明（dsh plugin add 时注入）
 ├── README.md               # 本文档（中文原版）
 ├── README.eng.md           # 本文档（英文翻译）
-├── shared/                 # 通用构建辅助
+├── shared/                 # 通用构建辅助（web-platform.ts / tsdown.client.ts）
 └── src/
-    ├── index.ts            # Host 插件入口：注册 /api/wsl-keepalive/* 路由（显式引用 webServer/shell/fs）
+    ├── index.ts            # Host 插件入口：ctx.inject(['webServer']) 取得载体并注册 /api/wsl-keepalive/* 路由
     ├── service.ts          # 保活核心：配置读写、PID 记录、status/start/stop
-    ├── routes.ts           # HTTP 路由（status / set）
+    ├── routes.ts           # HTTP 路由（status / set / config）
     └── client/
         ├── index.ts        # Client 模块：注册「设置 → 插件」下的本插件配置选项卡
-        ├── KeepAliveToggle.tsx
-        ├── i18n.ts           # 本地化字典（en / zh），注册进 DSH locale 服务
+        ├── KeepAliveConfig.tsx
+        ├── host-endpoint.ts # 同源 JSON fetch + 失败分类（端点不可达 / 宿主拒绝）
+        ├── i18n.ts         # 本地化字典（en / zh），注册进 DSH locale 服务
         ├── keepalive.module.css
         └── css-modules.d.ts
 ```

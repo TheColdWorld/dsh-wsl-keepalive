@@ -95,29 +95,38 @@ The config file `~/.dsh/wsl-keepalive.json` is retained; delete it manually if n
 
 ## 5. How It Works
 
-- **Communication**: The plugin Host exposes two JSON endpoints `/api/wsl-keepalive/status` and `/api/wsl-keepalive/set` via `ctx.webServer.register`; the browser half calls them with `fetch`.
-- **Explicit service references**: Host services (webServer/shell/fs) and browser services (slots/locale) are accessed as typed properties via the real `@deepseek-ai/*` contracts — the `Context` from `@deepseek-ai/cordis` plus the type augmentations from `dsh-host-webserver`/`dsh-shell`/`dsh-fs`/`dsh-client-*` — e.g. `ctx.webServer`, `ctx.shell`, `ctx.fs`, `scope.slots`, instead of the former implicit string-keyed `ctx.get('...')` list against local structural types (`src/types.ts`). Types are erased at build time; runtime dependencies come from the DSH `@deepseek-ai/*` packages.
-- **PID tracking**: dbus-daemon PIDs are recorded by the Host in memory after each query and live for the plugin's lifetime; the real state is re-queried after a restart.
+- **Communication**: The plugin Host exposes four same-origin JSON endpoints — `/api/wsl-keepalive/status`, `/api/wsl-keepalive/set`, and `/api/wsl-keepalive/config` (GET/POST); the browser half calls them with `fetch`.
+- **The `webServer` carrier is optional (DSH ≥ 0.1.5)**: since 0.1.5 the HTTP carrier is an *optional* capability — non-HTTP shells (Electron, worker carriers) load the same client stack without it. The plugin therefore does not put `webServer` in its static `inject` (that would leave the row permanently `pending` and fail the boot activation audit); instead `apply` **always** acquires the carrier with `ctx.inject(['webServer'], …)` — the same shape as DSH's own `/api` route in `dsh-client-connection`. That call creates a child fiber which runs as soon as the carrier is available (already bound or bound later) while the row itself activates unconditionally. Route registration lives inside that fiber's `ctx.effect`, so the routes are removed with the carrier and rebuilt if it returns; with no carrier the row still activates and the routes simply 404. Do not read `ctx.webServer` on the row's own context — cordis 4 throws `cannot get property "webServer" without inject` for an undeclared service property.
+- **Explicit service references**: the Host half imports only the contracts it uses — `Context` from `@deepseek-ai/cordis` and `WebRoute` from `@deepseek-ai/dsh-host-webserver` (whose `declare module` augmentation makes `ctx.webServer` a typed property). The browser half imports `dsh-client-ui-renderer` (`ctx.slots`), `dsh-client-ui-settings` (the `settings.plugins.tab` slot declaration), `dsh-client-ui-slots` (`PropsLocale`/`LocaleNamespaceMap`), and `dsh-client-locale` (`ctx.locale`). It does **not** use `ctx.shell`/`ctx.fs`: the keep-alive commands run on the host plane through Node's own `child_process`/`fs`, so `dsh-shell`/`dsh-fs` are no longer dependencies (the v0.1.2-rc.1 era imported them as empty `import type {}` augmentations that were erased at build time anyway).
+- **Keep-alive state**: dbus-daemon PIDs are recorded by the Host in memory after each query and live for the plugin's lifetime; the real state is re-queried after a restart.
+- **Two failure families, never conflated**:
+  | Family | Trigger | What the tab shows |
+  | --- | --- | --- |
+  | **Endpoint unreachable** (`endpoint`) | The host serves no `/api/wsl-keepalive/*` route at all: this shell provides no HTTP carrier (Electron / worker carriers), the plugin row is inactive, or the transport failed outright. Includes the "SPA fallback answers an unknown path with `index.html` and HTTP 200" pseudo-success | Subtitle: `Unavailable: the host does not serve /api/wsl-keepalive/* (response: HTTP …)`; status row: a red "likely causes" line (no HTTP carrier / row inactive) plus a dimmed retry note and the raw endpoint detail |
+  | **Host refusal** (`host`) | The request reached the host and the host refused: not a WSL environment, missing wsl.exe path, or a failed command | Subtitle: the reason localized to the DSH UI language (`Not a WSL environment (kernel: …)`, …); status row: the host's own raw detail (English text / command line / exit code) in dimmed text |
+  
+  To support this, `/api/wsl-keepalive/status` and `/set` now carry two extra fields — `errorCode` (a stable localization code owned by the client dictionary in `src/client/i18n.ts`) and `errorParams` (its template params). The original `error` stays as **technical detail** and is no longer the primary UI message.
 
 ## 6. Directory Structure
 
 ```
-wsl-keepalive-static/
+wsl-keepalive/
 ├── package.json            # dsh.bundle.patch + dsh.client declarations
 ├── tsconfig.json           # TypeScript build config
 ├── tsdown.config.ts        # tsdown build entry
 ├── cordis.patch.yml        # plugin row declaration (injected on `dsh plugin add`)
 ├── README.md               # this document (Chinese original)
 ├── README.eng.md           # this document (English translation)
-├── shared/                 # common build helpers
+├── shared/                 # common build helpers (web-platform.ts / tsdown.client.ts)
 └── src/
-    ├── index.ts            # Host plugin entry: registers /api/wsl-keepalive/* routes (explicit webServer/shell/fs refs)
+    ├── index.ts            # Host plugin entry: acquires the carrier via ctx.inject(['webServer']) and registers /api/wsl-keepalive/* routes
     ├── service.ts          # keep-alive core: config read/write, PID tracking, status/start/stop
-    ├── routes.ts           # HTTP routes (status / set)
+    ├── routes.ts           # HTTP routes (status / set / config)
     └── client/
         ├── index.ts        # Client module: registers the plugin config tab under "Settings → Plugins"
-        ├── KeepAliveToggle.tsx
-        ├── i18n.ts           # localization dictionaries (en / zh), registered into the DSH locale service
+        ├── KeepAliveConfig.tsx
+        ├── host-endpoint.ts # same-origin JSON fetch + failure classification (endpoint vs host)
+        ├── i18n.ts         # localization dictionaries (en / zh), registered into the DSH locale service
         ├── keepalive.module.css
         └── css-modules.d.ts
 ```

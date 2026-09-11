@@ -23,6 +23,16 @@ export type KeepAliveKey =
   | 'ariaLabel'
   | 'cannotReachHost'
   | 'retry'
+  // --- Host endpoint not reachable (transport level; the plugin may be fine) --
+  | 'errEndpointMissing'
+  | 'errTransportFailed'
+  | 'errHostError'
+  | 'endpointHint'
+  // --- Host refused because the environment is not applicable -----------------
+  | 'envNotWsl'
+  | 'errWslExecMissing'
+  | 'errStartFailed'
+  // --- Command configuration --------------------------------------------------
   | 'configSection'
   | 'commandSection'
   | 'pidLabel'
@@ -55,6 +65,13 @@ export const en: Record<KeepAliveKey, string> = {
   ariaLabel: 'WSL keep-alive toggle',
   cannotReachHost: 'Cannot reach host /api/wsl-keepalive',
   retry: 'The toggle stays clickable so you can retry.',
+  errEndpointMissing: 'The host does not serve /api/wsl-keepalive/* (response: HTTP {status}).',
+  errTransportFailed: 'Cannot connect to the host: {detail}',
+  errHostError: 'The host answered with an error: HTTP {status}',
+  endpointHint: 'Likely causes: this shell provides no HTTP carrier (Electron / worker carriers load the client stack without `webServer`), or the plugin row is not active in this profile.',
+  envNotWsl: 'Not a WSL environment (kernel: {kernel}) — this plugin needs wsl.exe, so it cannot work here. Enable it inside a WSL distro only.',
+  errWslExecMissing: 'wsl.exe path is unset and the fallback {fallback} does not exist, so keep-alive cannot start.',
+  errStartFailed: 'Starting keep-alive failed (exit {exit}): {detail}',
   configSection: 'Configuration',
   commandSection: 'Command configuration',
   pidLabel: 'Keep-alive process PID',
@@ -88,6 +105,13 @@ export const zh: Record<KeepAliveKey, string> = {
   ariaLabel: 'WSL 保活开关',
   cannotReachHost: '无法访问宿主 /api/wsl-keepalive',
   retry: '开关仍可点击重试。',
+  errEndpointMissing: '宿主未挂载 /api/wsl-keepalive/* 端点（响应：HTTP {status}）',
+  errTransportFailed: '无法连接宿主：{detail}',
+  errHostError: '宿主返回错误：HTTP {status}',
+  endpointHint: '常见原因：该外壳不提供 HTTP 载体（Electron / worker 载体不提供 `webServer`，同一套客户端栈仍会加载），或本插件行在当前 profile 中未激活。',
+  envNotWsl: '当前不是 WSL 环境（内核：{kernel}）——本插件依赖 wsl.exe，无法在此工作。请仅在 WSL 发行版内启用。',
+  errWslExecMissing: '未配置 wsl.exe 路径，且默认路径 {fallback} 不存在，保活无法启动',
+  errStartFailed: '启动保活失败（退出码 {exit}）：{detail}',
   configSection: '配置',
   commandSection: '命令配置',
   pidLabel: '保活进程PID',

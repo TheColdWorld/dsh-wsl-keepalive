@@ -38,7 +38,21 @@ export interface KeepAliveStatus {
   wslExecPath: string | null
   distName: string | null
   userName: string | null
+  /**
+   * Technical failure detail (command line, stderr, spawn error). This is the
+   * host's own diagnostic text and is NOT meant to be shown as the primary UI
+   * message — the browser localizes {@link KeepAliveStatus.errorCode} instead
+   * and renders this only as a dimmed detail line.
+   */
   error: string | null
+  /**
+   * Stable localization code for the failure, owned by the client dictionary
+   * (`src/client/i18n.ts`). `null` means no failure. A client that does not
+   * know the code falls back to `error`.
+   */
+  errorCode: string | null
+  /** Template params for {@link KeepAliveStatus.errorCode}, if any. */
+  errorParams: Record<string, string> | null
 }
 
 /** Command-config surface returned to the browser (pure JSON scalars). */
@@ -81,10 +95,17 @@ interface CommandResult {
   infraError: string | null
 }
 
+/** A structured startup failure: a localization code, its params, and the raw detail. */
+export interface StartupFailure {
+  code: string
+  params?: Record<string, string>
+  detail: string
+}
+
 /** Startup parse result. */
 type Startup =
   | { wslExecPath: string; distName: string; userName: string }
-  | { error: string }
+  | { failure: StartupFailure }
 
 export class KeepAliveService {
   private readonly config: KeepAliveConfig
@@ -108,12 +129,32 @@ export class KeepAliveService {
     if (this.startup === null) {
       this.startup = this.init()
       void this.startup.then((startup) => {
-        if ('error' in startup) {
-          console.error(`[wsl-keepalive] cannot run: ${startup.error}`)
+        if ('failure' in startup) {
+          console.error(`[wsl-keepalive] cannot run: ${startup.failure.detail}`)
         }
       })
     }
     return this.startup
+  }
+
+  /**
+   * The status payload for a startup refusal: every scalar is `null`/false, the
+   * localization code and its params drive the browser copy, and `error` keeps
+   * the raw detail for the log and for a client that predates `errorCode`.
+   */
+  private static failureStatus(failure: StartupFailure, label: string): KeepAliveStatus {
+    return {
+      running: false,
+      pids: [],
+      pid: null,
+      distro: label,
+      wslExecPath: null,
+      distName: null,
+      userName: null,
+      error: failure.detail,
+      errorCode: failure.code,
+      errorParams: failure.params ?? null,
+    }
   }
 
   /**
@@ -297,12 +338,14 @@ export class KeepAliveService {
    * otherwise error.
    */
   private async init(): Promise<Startup> {
-    // 1) Environment gate: refuse immediately outside WSL with a human-readable reason.
+    // 1) Environment gate: refuse immediately outside WSL. The refusal travels
+    // as a localization code plus the one fact it needs (`kernel`); the English
+    // sentence stays for the log and for pre-`errorCode` clients.
     const env = checkWslEnv()
     if (!env.ok) {
-      const error = env.reason ?? `Not a WSL environment; this plugin cannot run (${env.detail})`
-      console.error(`[wsl-keepalive] refused to run: ${error}`)
-      return { error }
+      const detail = env.reason ?? `Not a WSL environment; this plugin cannot run (${env.detail})`
+      console.error(`[wsl-keepalive] refused to run: ${detail}`)
+      return { failure: { code: 'envNotWsl', params: { kernel: env.kernel || 'unknown' }, detail } }
     }
 
     // 2) Resolve wsl-exec-path / wsl-dist-name / wsl-user-name.
@@ -315,9 +358,9 @@ export class KeepAliveService {
         await this.saveConfig(cfg)
         console.log('wsl-exec-path was unset; auto-wrote:', exe)
       } else {
-        const error = `wsl-exec-path unset and ${this.FALLBACK_WSL_EXE} does not exist; cannot start keep-alive`
-        console.error(error)
-        return { error }
+        const detail = `wsl-exec-path unset and ${this.FALLBACK_WSL_EXE} does not exist; cannot start keep-alive`
+        console.error(detail)
+        return { failure: { code: 'errWslExecMissing', params: { fallback: this.FALLBACK_WSL_EXE }, detail } }
       }
     }
     return {
@@ -337,16 +380,22 @@ export class KeepAliveService {
   /** Query keep-alive status (including the PIDs recorded in memory). */
   async status(): Promise<KeepAliveStatus> {
     const init = await this.getStartup()
+    // A startup refusal is terminal for this plugin: no process query is
+    // attempted, so the browser gets the structured refusal instead of a
+    // misleading "not running".
+    if ('failure' in init) return KeepAliveService.failureStatus(init.failure, await this.getLabel())
     const status = await this.queryStatus()
     return {
       running: status.running,
       pids: this.lastPids,
       pid: this.lastPids.length > 0 ? this.lastPids[0] : null,
       distro: await this.getLabel(),
-      wslExecPath: 'wslExecPath' in init ? init.wslExecPath : null,
-      distName: 'wslExecPath' in init ? init.distName : null,
-      userName: 'wslExecPath' in init ? init.userName : null,
-      error: 'error' in init ? init.error : status.infraError,
+      wslExecPath: init.wslExecPath,
+      distName: init.distName,
+      userName: init.userName,
+      error: status.infraError,
+      errorCode: status.infraError === null ? null : 'errCommandFailed',
+      errorParams: status.infraError === null ? null : { detail: status.infraError },
     }
   }
 
@@ -426,16 +475,13 @@ export class KeepAliveService {
   /** Toggle keep-alive: enabled=true starts (dedupes, then runs wsl.exe --exec dbus-launch true), false stops (precisely stops recorded PIDs). */
   async set(enabled: boolean): Promise<KeepAliveStatus> {
     const init = await this.getStartup()
-    const empty = { running: false, pids: [], pid: null, distro: 'WSL', wslExecPath: null, distName: null, userName: null }
-    if ('error' in init) {
-      return { ...empty, error: init.error }
-    }
+    if ('failure' in init) return KeepAliveService.failureStatus(init.failure, await this.getLabel())
     const label = await this.getLabel()
     const before = await this.queryStatus()
 
     if (enabled) {
       if (before.running) {
-        return { running: true, pids: this.lastPids, pid: this.lastPids[0] || null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: null }
+        return { running: true, pids: this.lastPids, pid: this.lastPids[0] || null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: null, errorCode: null, errorParams: null }
       }
       const dist = init.distName
       const user = init.userName
@@ -444,14 +490,14 @@ export class KeepAliveService {
       const cmd = `${KeepAliveService.shq(init.wslExecPath)}${distArg}${userArg} --exec dbus-launch true`
       const r = await this.runCommand(cmd, 30000)
       if (r.infraError) {
-        return { running: false, pids: [], pid: null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: r.infraError }
+        return { running: false, pids: [], pid: null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: r.infraError, errorCode: 'errCommandFailed', errorParams: { detail: r.infraError } }
       }
       if (r.exitCode !== 0) {
         // Surface the exact reason (the command + stderr) so the failure is actionable.
         const detail = r.stderr.trim() || r.stdout.trim() || '(no output)'
         const message = `start failed: ${cmd} -> exit ${String(r.exitCode)}: ${detail}`
         console.error(`[wsl-keepalive] ${message}`)
-        return { running: false, pids: [], pid: null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: message }
+        return { running: false, pids: [], pid: null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: message, errorCode: 'errStartFailed', errorParams: { exit: String(r.exitCode), detail } }
       }
       const after = await this.queryStatus()
       return {
@@ -462,12 +508,14 @@ export class KeepAliveService {
         wslExecPath: init.wslExecPath,
         distName: init.distName,
         userName: init.userName,
-        error: null,
+        error: after.infraError,
+        errorCode: after.infraError === null ? null : 'errCommandFailed',
+        errorParams: after.infraError === null ? null : { detail: after.infraError },
       }
     }
 
     await this.stopPids()
     const after = await this.queryStatus()
-    return { running: after.running, pids: this.lastPids, pid: this.lastPids[0] || null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: null }
+    return { running: after.running, pids: this.lastPids, pid: this.lastPids[0] || null, distro: label, wslExecPath: init.wslExecPath, distName: init.distName, userName: init.userName, error: after.infraError, errorCode: after.infraError === null ? null : 'errCommandFailed', errorParams: after.infraError === null ? null : { detail: after.infraError } }
   }
 }

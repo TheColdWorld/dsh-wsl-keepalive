@@ -22,7 +22,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { KeepAliveKey } from './i18n.ts'
+import { en, type KeepAliveKey } from './i18n.ts'
+import { HostRequestError, keepAliveFetch, ownsCode, type HostFailureKind } from './host-endpoint.ts'
 import css from './keepalive.module.css'
 
 /** Business face produced by the entry's inject factory (the `t` seat is framework-injected separately). */
@@ -40,7 +41,16 @@ interface KeepAliveHttpStatus {
   wslExecPath: string | null
   distName: string | null
   userName: string | null
+  /**
+   * Technical failure detail (host text / command output). It is diagnostics,
+   * not copy: the UI shows the localized `errorCode` and renders this only as a
+   * dimmed detail line.
+   */
   error: string | null
+  /** Stable localization code for a Host refusal. Absent on hosts that predate it. */
+  errorCode?: string | null
+  /** Template params for `errorCode`. */
+  errorParams?: Record<string, string> | null
 }
 
 /** Command config returned by GET/POST /api/wsl-keepalive/config. */
@@ -72,13 +82,22 @@ interface FieldState {
   saving: boolean
 }
 
-/** Same-origin JSON fetch helper. */
-async function keepAliveFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init)
-  if (!response.ok) {
-    throw new Error(`wsl-keepalive ${path} failed: ${response.status}`)
-  }
-  return (await response.json()) as T
+/**
+ * A failure rendered by this page: the localized headline plus the raw detail
+ * and the family it belongs to. The classification itself lives in
+ * `./host-endpoint.ts` (transport) and in the Host's `errorCode` (refusal).
+ */
+interface HostFailure {
+  /** Localized headline (always safe to show). */
+  message: string
+  /** Raw technical detail for the dimmed line (host text, HTTP status). */
+  detail: string
+  kind: HostFailureKind
+}
+
+/** True when `code` names a key this plugin's own dictionary owns. */
+function isKeepAliveKey(code: string | null | undefined): code is KeepAliveKey {
+  return ownsCode(code, en)
 }
 
 const initialFields = (config: ConfigView): Record<FieldKey, FieldState> => ({
@@ -95,15 +114,49 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
     running: boolean
     loading: boolean
     busy: boolean
-    error: string | null
+    failure: HostFailure | null
     pid: string | null
     distro: string
-  }>({ running: false, loading: true, busy: false, error: null, pid: null, distro: '' })
+  }>({ running: false, loading: true, busy: false, failure: null, pid: null, distro: '' })
 
   const [config, setConfig] = useState<ConfigView>({ distName: '', userName: '', wslExecPath: '' })
   const [fields, setFields] = useState<Record<FieldKey, FieldState>>(initialFields({ distName: '', userName: '', wslExecPath: '' }))
   const [configLoading, setConfigLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  /** Classify any request failure into the two families this page distinguishes. */
+  const describeFailure = useCallback((error: unknown): HostFailure => {
+    if (error instanceof HostRequestError) {
+      return {
+        message: t(error.code, error.params),
+        detail: error.message,
+        kind: error.kind,
+      }
+    }
+    return {
+      message: t('cannotReachHost'),
+      detail: String((error as Error | undefined)?.message ?? error),
+      kind: 'endpoint',
+    }
+  }, [t])
+
+  /**
+   * Map a Host status payload. A refusal arrives as a localization code (owned
+   * by this dictionary); a host that predates `errorCode` falls back to its raw
+   * `error` text so nothing is ever swallowed.
+   */
+  const describeStatus = useCallback((res: KeepAliveHttpStatus): HostFailure | null => {
+    if (res.errorCode === null || res.errorCode === undefined) {
+      return res.error === null || res.error === undefined
+        ? null
+        : { message: res.error, detail: res.error, kind: 'host' }
+    }
+    return {
+      message: isKeepAliveKey(res.errorCode) ? t(res.errorCode, res.errorParams ?? undefined) : (res.error ?? t('cannotReachHost')),
+      detail: res.error ?? '',
+      kind: 'host',
+    }
+  }, [t])
 
   // Load both the status and the command config on mount.
   useEffect(() => {
@@ -115,13 +168,13 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
           running: !!res.running,
           loading: false,
           busy: false,
-          error: res.error || null,
+          failure: describeStatus(res),
           pid: res.pid || null,
           distro: res.distro || '',
         })
-      }, () => {
+      }, (error) => {
         if (!live) return
-        setStatus((prev) => ({ ...prev, loading: false, error: t('cannotReachHost') }))
+        setStatus((prev) => ({ ...prev, loading: false, failure: describeFailure(error) }))
       })
     }
     const loadConfig = (): void => {
@@ -135,20 +188,20 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
           setLoadError(res.error || t('cannotReachHost'))
         }
         setConfigLoading(false)
-      }, (e) => {
+      }, (error) => {
         if (!live) return
-        setLoadError(t('cannotReachHost') + ': ' + String((e && (e as Error).message) || e))
+        setLoadError(describeFailure(error).message)
         setConfigLoading(false)
       })
     }
     poll()
     loadConfig()
     return () => { live = false }
-  }, [t])
+  }, [t, describeFailure, describeStatus])
 
   const onToggle = (): void => {
     const target = !status.running
-    setStatus((prev) => ({ ...prev, busy: true, error: null }))
+    setStatus((prev) => ({ ...prev, busy: true, failure: null }))
     keepAliveFetch<KeepAliveHttpStatus>('/api/wsl-keepalive/set', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -158,12 +211,12 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
         running: !!res.running,
         loading: false,
         busy: false,
-        error: res.error || null,
+        failure: describeStatus(res),
         pid: res.pid || null,
         distro: res.distro || '',
       })
-    }, (e) => {
-      setStatus((prev) => ({ ...prev, busy: false, error: String((e && (e as Error).message) || e) }))
+    }, (error) => {
+      setStatus((prev) => ({ ...prev, busy: false, failure: describeFailure(error) }))
     })
   }
 
@@ -186,11 +239,16 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
         // The host returns a structured { code, params }, localized here with the
         // DSH UI language via the `t` seat (no hardcoded host strings).
         const saved = config[field]
-        const message = res.code ? t(res.code as KeepAliveKey, res.params) : t('saveFailed')
+        const message = isKeepAliveKey(res.code) ? t(res.code, res.params) : (res.error || t('saveFailed'))
         setFields((prev) => ({ ...prev, [field]: { value: saved, error: message, saving: false } }))
       }
-    } catch (e) {
-      setFields((prev) => ({ ...prev, [field]: { value: config[field], error: `${t('saveFailed')}: ${String((e && (e as Error).message) || e)}`, saving: false } }))
+    } catch (error) {
+      // A transport/host failure is classified the same way here as in the
+      // status card, so the field never shows a raw English host string.
+      const message = error instanceof HostRequestError
+        ? t(error.code, error.params)
+        : `${t('saveFailed')}: ${String((error as Error | undefined)?.message ?? error)}`
+      setFields((prev) => ({ ...prev, [field]: { value: config[field], error: message, saving: false } }))
     }
   }, [config, t])
 
@@ -200,8 +258,8 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
     { key: 'wslExecPath', label: t('wslExecLabel'), desc: t('wslExecDesc') },
   ]
 
-  const statusText = status.error
-    ? `${t('unavailable')} ${status.error}`
+  const statusText = status.failure !== null
+    ? `${t('unavailable')} ${status.failure.message}`
     : status.running
       ? `${t('enabled')}${status.distro ? ` · ${status.distro}` : ''}`
       : `${t('disabled')}${status.distro ? ` · ${status.distro}` : ''}`
@@ -228,10 +286,19 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
           </button>
         </div>
         <div className={css.statusRow}>
-          {status.error ? (
-            <span className={css.error}>{status.error}</span>
-          ) : (
+          {status.failure === null ? (
             <>{t('pidLabel')} : <span className={css.pid}>{status.pid || t('noPid')}</span></>
+          ) : status.failure.kind === 'endpoint' ? (
+            // Wiring problem: the host serves no such route. Say what that means
+            // and that the toggle can be retried, instead of echoing a 404.
+            <>
+              <span className={css.error}>{t('endpointHint')}</span>
+              <span className={css.detail}>{t('retry')}{status.failure.detail ? ` (${status.failure.detail})` : ''}</span>
+            </>
+          ) : (
+            // The host answered: the headline above is the localized refusal, so
+            // the dimmed line keeps its raw diagnostics.
+            <span className={css.detail}>{status.failure.detail}</span>
           )}
         </div>
       </section>

@@ -71,6 +71,17 @@
   line-height: 16px;
 }
 
+/* Dim technical detail under a failure headline (raw host text, HTTP status). */
+.detail {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--dsw-alias-label-secondary, #6e7781);
+  white-space: normal;
+  word-break: break-all;
+}
+
 /* Switch */
 .switch {
   position: relative;

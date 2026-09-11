@@ -19,6 +19,12 @@ export interface WslEnvResult {
   reason: string | null
   /** Short description for logs / debugging. */
   detail: string
+  /**
+   * Kernel release string read during detection (empty when unreadable). It is
+   * the one concrete fact the client can localize a refusal with, so it travels
+   * as a template param instead of being baked into an English sentence.
+   */
+  kernel: string
 }
 
 /** Safely read a short command's stdout (empty string on any failure). */
@@ -51,7 +57,7 @@ export function checkWslEnv(): WslEnvResult {
       : hasWslConf
         ? 'detected /etc/wsl.conf'
         : 'detected /mnt/c (Windows mount)'
-    return { ok: true, reason: null, detail }
+    return { ok: true, reason: null, detail, kernel }
   }
 
   const kernelText = kernel ? `kernel "${kernel}"` : 'unable to read kernel version'
@@ -60,5 +66,5 @@ export function checkWslEnv(): WslEnvResult {
     'This is not a WSL environment: this plugin depends on wsl.exe to interact between Windows and WSL ' +
     `to keep the distro alive, so it cannot work outside WSL. Detected: ${kernelText}, and no WSL markers found. ` +
     'Please install this plugin only inside a WSL distro.'
-  return { ok: false, reason, detail }
+  return { ok: false, reason, detail, kernel }
 }

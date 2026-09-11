@@ -4,27 +4,43 @@
  * Communication mechanism: static plugins cannot use the dynamic plugin's harness.handle/host.call,
  * so the Host registers HTTP routes + the Client uses fetch (same pattern as dsh-balance-meter's /api/balance).
  *
- * Route registration follows the documented host-route pattern: the row does
- * NOT hard-inject `webServer` (that would make the row `pending` and break the
- * web boot). Instead `apply` reads the route carrier with `ctx.get('webServer')`
- * (new key, with an `httpServer` fallback for the pre-rc.2 rename), registers
- * the routes inside a `ctx.effect`, and — because the carrier may bind *after*
- * `apply` — listens to the `internal/service` event to register as soon as it
- * appears. The keep-alive commands/config run on the host plane directly via
- * Node's own `child_process`/`fs` (inside the service), not the model-facing
+ * Route registration follows the DSH >= 0.1.5 host-route pattern for an
+ * *optional* carrier: the row does NOT declare `webServer` in its static
+ * `inject` (that would leave the row `pending` and fail the boot activation
+ * audit). DSH 0.1.5 made the HTTP carrier optional — non-HTTP shells (Electron,
+ * worker carriers) load the same client stack without it — so the carrier is
+ * acquired with `ctx.inject(['webServer'], ...)` and the routes are registered
+ * from that child fiber, exactly like `dsh-client-connection`'s `/api` route.
+ * The child fiber runs as soon as the carrier is available — a microtask after
+ * this row when it is already bound, later when it binds afterwards — and its
+ * `ctx.effect` owns the registration, so the routes are removed when the
+ * carrier unloads and rebuilt when it returns. With no carrier the row still
+ * activates and every `/api/wsl-keepalive/*` call simply 404s.
+ *
+ * Do NOT read `ctx.webServer` on this row's own context: cordis 4 throws
+ * `cannot get property "webServer" without inject` for an undeclared service
+ * property (verified against the shipped cordis 4.0.2 build), which is why the
+ * registration lives entirely inside the injected child fiber. `ctx.get(...)`
+ * would read without inject, but it hands back only a value: the registration
+ * would then be owned by this row's fiber and would neither be removed with
+ * the carrier nor rebuilt if the carrier were replaced.
+ *
+ * The keep-alive commands/config run on the host plane directly via Node's own
+ * `child_process`/`fs` (inside the service), not the model-facing
  * `ctx.shell`/`ctx.fs` services. The Client half is mounted by the same
  * `dsh.client` declaration in package.json.
  * @module wsl-keepalive
  */
 
 import { Context } from '@deepseek-ai/cordis'
-// Module augmentations: importing the exported types registers `ctx.webServer`,
-// `ctx.shell`, and `ctx.fs` on the cordis Context so references type-check.
+// The `WebRoute` type import is the only Host-plane contract this half needs:
+// it also pulls in `@deepseek-ai/dsh-host-webserver`'s `declare module`
+// augmentation, which is what makes `ctx.webServer` a typed property. No
+// `dsh-shell`/`dsh-fs` augmentation is imported (see the module note above):
+// this plugin never reads `ctx.shell`/`ctx.fs`.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type {} from '@deepseek-ai/dsh-shell'
-import type {} from '@deepseek-ai/dsh-fs'
 import { KeepAliveService, type KeepAliveConfig } from './service.ts'
-import { KEEPALIVE_API_PREFIX, makeKeepAliveRoutes } from './routes.ts'
+import { makeKeepAliveRoutes } from './routes.ts'
 
 export { KeepAliveService } from './service.ts'
 export type { KeepAliveConfig, KeepAliveStatus } from './service.ts'
@@ -35,14 +51,32 @@ export const name = 'wsl-keepalive'
 
 /**
  * No top-level service dependency: the row activates unconditionally so it can
- * never be left `pending` and break the web boot. The web route carrier is read
- * inside apply via `ctx.get('webServer')` (documented host-route pattern) and
- * re-registered on the `internal/service` event if it binds after apply.
+ * never be left `pending` and break the web boot. The optional `webServer`
+ * carrier is acquired inside apply through `ctx.inject(['webServer'], ...)`
+ * (DSH >= 0.1.5 pattern for a carrier that may be absent or bind late).
  */
 export const inject: string[] = []
 
-/** The minimal route-registration surface of the web server carrier. */
-type RouteHost = { register(route: WebRoute): () => void }
+/**
+ * Register every route inside the carrier fiber's effect. `effect` ties the
+ * route disposers to that fiber, so an unloading carrier removes its own
+ * routes and a re-provided one registers a fresh set.
+ * @param carrierCtx - context whose fiber declares `webServer` in its inject
+ * (the `ctx.inject(['webServer'], ...)` child scope) — the declaration is what
+ * makes the `webServer` property access legal in cordis 4.
+ * @param routes - the route family to publish.
+ */
+function registerRoutes(carrierCtx: Context, routes: readonly WebRoute[]): void {
+  carrierCtx.effect(
+    () => {
+      const disposers = routes.map(route => carrierCtx.webServer.register(route))
+      return () => {
+        for (const dispose of disposers) dispose()
+      }
+    },
+    'wsl-keepalive: routes',
+  )
+}
 
 /**
  * Registers the keep-alive service and its API routes.
@@ -59,33 +93,9 @@ export function apply(ctx: Context, config: KeepAliveConfig = {}): void {
   const service = new KeepAliveService(config)
   const routes: WebRoute[] = makeKeepAliveRoutes(service)
 
-  // `registered` guards against registering twice (once from the synchronous
-  // attempt and again from the late-binding `internal/service` listener).
-  let registered = false
-  const registerRoutes = (): void => {
-    if (registered) return
-    const web = (ctx.get('webServer') ?? ctx.get('httpServer')) as RouteHost | undefined
-    if (web === undefined) return
-    registered = true
-    ctx.effect(
-      () => {
-        const disposers = new Set<() => void>()
-        for (const route of routes) {
-          disposers.add(web.register(route))
-        }
-        return () => {
-          for (const dispose of disposers) dispose()
-        }
-      },
-      'wsl-keepalive: routes',
-    )
-  }
-
-  // Try immediately (the carrier may already be bound), and re-register if it
-  // binds after apply. ctx.get reads without the inject requirement, so this
-  // row never waits pending.
-  registerRoutes()
-  ctx.on('internal/service', (serviceName: unknown) => {
-    if (serviceName === 'webServer' || serviceName === 'httpServer') registerRoutes()
-  })
+  // Acquire the optional carrier and register from its fiber. `ctx.inject`
+  // creates a child fiber (never making this row `pending`) that runs once
+  // `webServer` exists — already bound or bound later — and unloads when the
+  // carrier goes away, taking the routes with it.
+  ctx.inject(['webServer'], (carrierCtx) => { registerRoutes(carrierCtx, routes) })
 }
