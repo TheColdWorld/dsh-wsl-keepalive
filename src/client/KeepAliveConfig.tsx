@@ -1,268 +1,67 @@
 /**
- * WSL keep-alive settings page. It renders two logical configuration areas:
+ * WSL keep-alive Plugins-page configuration form. It renders two logical
+ * areas:
  *
  * 1. 配置 / Configuration — the keep-alive toggle (enabled state + switch) and
  *    the live dbus-daemon PID line. On a failure the PID line turns into the
- *    red command output / rejection reason instead.
- * 2. 命令配置 / Command configuration — three text config items (distro, user,
- *    wsl.exe path), each with a description, validated at runtime. On commit
- *    (blur / Enter) the value is POSTed to the host; if the distro / user /
- *    wsl.exe does not resolve, the field is reverted to its last saved value
- *    and the rejection reason is shown in red. A successful change is persisted
- *    by the host to disk.
+ *    localized refusal / rejection reason instead.
+ * 2. 命令配置 / Command configuration — the row's Volatile Config fields
+ *    (distro, user, wsl.exe path) through the shared settings form. Saving
+ *    writes the profile's Cordis patch through `ctx.configForms`.
  *
- * The mockup's black frames are grouping markers only and are not rendered;
- * each area is a light neutral card instead.
- *
- * UI strings come from the framework-injected `t` translate seat (declared via
- * the entry's `locale:` namespace), so they follow the DSH UI language
+ * UI strings come from the framework-injected `t` seat (declared via the
+ * entry's `locale:` namespace), so they follow the DSH UI language
  * automatically on every switch.
  * @module wsl-keepalive/client/KeepAliveConfig
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { en, type KeepAliveKey } from './i18n.ts'
-import { HostRequestError, keepAliveFetch, ownsCode, type HostFailureKind } from './host-endpoint.ts'
+import { useEffect } from 'react'
+import { SettingsForm, SettingsValueField, type SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { KeepAliveCardFace, KeepAliveCardState } from './controller.ts'
+import type { KeepAliveKey } from './i18n.ts'
 import css from './keepalive.module.css'
 
-/** Business face produced by the entry's inject factory (the `t` seat is framework-injected separately). */
-export interface KeepAliveToggleInjected {}
+/** Props the renderer binds for this page. */
+export type KeepAliveCardProps =
+  PropsRuntime<'plugins.row.config'>
+  & PropsLocale<'wsl-keepalive'>
+  & InjectFace<KeepAliveCardFace>
 
-/** Full component props: the framework `t` seat (PropsLocale) plus the injected business face. */
-export interface KeepAliveToggleProps extends KeepAliveToggleInjected, PropsLocale<'wsl-keepalive'> {}
-
-/** Host keep-alive API (same-origin JSON endpoint). */
-interface KeepAliveHttpStatus {
-  running: boolean
-  pids: string[]
-  pid: string | null
-  distro: string
-  wslExecPath: string | null
-  distName: string | null
-  userName: string | null
-  /**
-   * Technical failure detail (host text / command output). It is diagnostics,
-   * not copy: the UI shows the localized `errorCode` and renders this only as a
-   * dimmed detail line.
-   */
-  error: string | null
-  /** Stable localization code for a Host refusal. Absent on hosts that predate it. */
-  errorCode?: string | null
-  /** Template params for `errorCode`. */
-  errorParams?: Record<string, string> | null
-}
-
-/** Command config returned by GET/POST /api/wsl-keepalive/config. */
-interface ConfigView {
-  distName: string
-  userName: string
-  wslExecPath: string
-}
-
-/**
- * Response from the config read/update endpoint. A failed update carries a
- * structured `code` + `params` (never a hardcoded string) that the client
- * localizes to the DSH UI language via the `t` seat.
- */
-interface ConfigResponse {
-  ok: boolean
-  config?: ConfigView
-  error?: string
-  field?: string
-  code?: string
-  params?: Record<string, string>
-}
-
-type FieldKey = keyof ConfigView
-
-interface FieldState {
-  value: string
-  error: string | null
-  saving: boolean
-}
-
-/**
- * A failure rendered by this page: the localized headline plus the raw detail
- * and the family it belongs to. The classification itself lives in
- * `./host-endpoint.ts` (transport) and in the Host's `errorCode` (refusal).
- */
-interface HostFailure {
-  /** Localized headline (always safe to show). */
-  message: string
-  /** Raw technical detail for the dimmed line (host text, HTTP status). */
-  detail: string
-  kind: HostFailureKind
-}
-
-/** True when `code` names a key this plugin's own dictionary owns. */
-function isKeepAliveKey(code: string | null | undefined): code is KeepAliveKey {
-  return ownsCode(code, en)
-}
-
-const initialFields = (config: ConfigView): Record<FieldKey, FieldState> => ({
-  distName: { value: config.distName, error: null, saving: false },
-  userName: { value: config.userName, error: null, saving: false },
-  wslExecPath: { value: config.wslExecPath, error: null, saving: false },
-})
-
-/**
- * The keep-alive settings page (a settings tab, self-drawn).
- */
-export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement {
-  const [status, setStatus] = useState<{
-    running: boolean
-    loading: boolean
-    busy: boolean
-    failure: HostFailure | null
-    pid: string | null
-    distro: string
-  }>({ running: false, loading: true, busy: false, failure: null, pid: null, distro: '' })
-
-  const [config, setConfig] = useState<ConfigView>({ distName: '', userName: '', wslExecPath: '' })
-  const [fields, setFields] = useState<Record<FieldKey, FieldState>>(initialFields({ distName: '', userName: '', wslExecPath: '' }))
-  const [configLoading, setConfigLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  /** Classify any request failure into the two families this page distinguishes. */
-  const describeFailure = useCallback((error: unknown): HostFailure => {
-    if (error instanceof HostRequestError) {
-      return {
-        message: t(error.code, error.params),
-        detail: error.message,
-        kind: error.kind,
-      }
-    }
-    return {
-      message: t('cannotReachHost'),
-      detail: String((error as Error | undefined)?.message ?? error),
-      kind: 'endpoint',
-    }
-  }, [t])
-
-  /**
-   * Map a Host status payload. A refusal arrives as a localization code (owned
-   * by this dictionary); a host that predates `errorCode` falls back to its raw
-   * `error` text so nothing is ever swallowed.
-   */
-  const describeStatus = useCallback((res: KeepAliveHttpStatus): HostFailure | null => {
-    if (res.errorCode === null || res.errorCode === undefined) {
-      return res.error === null || res.error === undefined
-        ? null
-        : { message: res.error, detail: res.error, kind: 'host' }
-    }
-    return {
-      message: isKeepAliveKey(res.errorCode) ? t(res.errorCode, res.errorParams ?? undefined) : (res.error ?? t('cannotReachHost')),
-      detail: res.error ?? '',
-      kind: 'host',
-    }
-  }, [t])
-
-  // Load both the status and the command config on mount.
-  useEffect(() => {
-    let live = true
-    const poll = (): void => {
-      keepAliveFetch<KeepAliveHttpStatus>('/api/wsl-keepalive/status').then((res) => {
-        if (!live) return
-        setStatus({
-          running: !!res.running,
-          loading: false,
-          busy: false,
-          failure: describeStatus(res),
-          pid: res.pid || null,
-          distro: res.distro || '',
-        })
-      }, (error) => {
-        if (!live) return
-        setStatus((prev) => ({ ...prev, loading: false, failure: describeFailure(error) }))
-      })
-    }
-    const loadConfig = (): void => {
-      keepAliveFetch<ConfigResponse>('/api/wsl-keepalive/config').then((res) => {
-        if (!live) return
-        if (res.ok && res.config) {
-          setConfig(res.config)
-          setFields(initialFields(res.config))
-          setLoadError(null)
-        } else {
-          setLoadError(res.error || t('cannotReachHost'))
-        }
-        setConfigLoading(false)
-      }, (error) => {
-        if (!live) return
-        setLoadError(describeFailure(error).message)
-        setConfigLoading(false)
-      })
-    }
-    poll()
-    loadConfig()
-    return () => { live = false }
-  }, [t, describeFailure, describeStatus])
-
-  const onToggle = (): void => {
-    const target = !status.running
-    setStatus((prev) => ({ ...prev, busy: true, failure: null }))
-    keepAliveFetch<KeepAliveHttpStatus>('/api/wsl-keepalive/set', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ enabled: target }),
-    }).then((res) => {
-      setStatus({
-        running: !!res.running,
-        loading: false,
-        busy: false,
-        failure: describeStatus(res),
-        pid: res.pid || null,
-        distro: res.distro || '',
-      })
-    }, (error) => {
-      setStatus((prev) => ({ ...prev, busy: false, failure: describeFailure(error) }))
-    })
+/** The shared form frame's copy, read from this page's dictionary. */
+function formLabels(t: (key: KeepAliveKey) => string): SettingsFormLabels {
+  return {
+    unavailable: t('namespaceUnavailable'),
+    readOnly: t('readOnly'),
+    saveFailed: t('saveFailed'),
+    save: t('save'),
+    saving: t('saving'),
   }
+}
 
-  // Commit a command-config field: POST, validate server-side, revert on failure.
-  const saveField = useCallback(async (field: FieldKey, raw: string): Promise<void> => {
-    const value = raw.trim()
-    if (value === config[field]) return
-    setFields((prev) => ({ ...prev, [field]: { ...prev[field], saving: true, error: null } }))
-    try {
-      const res = await keepAliveFetch<ConfigResponse>('/api/wsl-keepalive/config', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      })
-      if (res.ok && res.config) {
-        setConfig(res.config)
-        setFields((prev) => ({ ...prev, [field]: { value: res.config?.[field] ?? value, error: null, saving: false } }))
-      } else {
-        // Validation failed: revert to the last saved value and surface the reason.
-        // The host returns a structured { code, params }, localized here with the
-        // DSH UI language via the `t` seat (no hardcoded host strings).
-        const saved = config[field]
-        const message = isKeepAliveKey(res.code) ? t(res.code, res.params) : (res.error || t('saveFailed'))
-        setFields((prev) => ({ ...prev, [field]: { value: saved, error: message, saving: false } }))
-      }
-    } catch (error) {
-      // A transport/host failure is classified the same way here as in the
-      // status card, so the field never shows a raw English host string.
-      const message = error instanceof HostRequestError
-        ? t(error.code, error.params)
-        : `${t('saveFailed')}: ${String((error as Error | undefined)?.message ?? error)}`
-      setFields((prev) => ({ ...prev, [field]: { value: config[field], error: message, saving: false } }))
-    }
-  }, [config, t])
+/** The toggle row's subtitle: the localized state, or the refusal headline. */
+function statusText(state: KeepAliveCardState, t: (key: KeepAliveKey, params?: Record<string, string>) => string): string {
+  const suffix = state.distro ? ' · ' + state.distro : ''
+  if (state.failure !== null) return t('unavailable') + ' ' + state.failure.message
+  return (state.running ? t('enabled') : t('disabled')) + suffix
+}
 
-  const fieldDefs: { key: FieldKey; label: string; desc: string }[] = [
-    { key: 'distName', label: t('distroLabel'), desc: t('distroDesc') },
-    { key: 'userName', label: t('userLabel'), desc: t('userDesc') },
-    { key: 'wslExecPath', label: t('wslExecLabel'), desc: t('wslExecDesc') },
-  ]
+/**
+ * The keep-alive settings page.
+ * @param props - the view asked for, locale copy, the form snapshot, and its actions.
+ * @returns the one-liner, or the page.
+ */
+export function KeepAliveConfig(props: KeepAliveCardProps): React.ReactElement {
+  const { t } = props
+  const state = props.useKeepAliveCard(snapshot => snapshot)
 
-  const statusText = status.failure !== null
-    ? `${t('unavailable')} ${status.failure.message}`
-    : status.running
-      ? `${t('enabled')}${status.distro ? ` · ${status.distro}` : ''}`
-      : `${t('disabled')}${status.distro ? ` · ${status.distro}` : ''}`
+  // Load the status once the page mounts.
+  useEffect(() => { props.refresh() }, [props.refresh])
+
+  if (props.view === 'summary') return <>{t('description')}</>
+
+  const disabled = !state.writable
+  const switchClass = state.running ? css.switch + ' ' + css.switchOn : css.switch
 
   return (
     <div className={css.page}>
@@ -271,67 +70,74 @@ export function KeepAliveConfig({ t }: KeepAliveToggleProps): React.ReactElement
         <div className={css.toggleRow}>
           <div className={css.toggleInfo}>
             <div className={css.toggleTitle}>{t('title')}</div>
-            <div className={css.toggleSub}>{statusText}</div>
+            <div className={css.toggleSub}>{statusText(state, t)}</div>
           </div>
           <button
             type="button"
             role="switch"
-            aria-checked={status.running}
+            aria-checked={state.running}
             aria-label={t('ariaLabel')}
-            disabled={status.loading || status.busy}
-            className={`${css.switch}${status.running ? ` ${css.switchOn}` : ''}`}
-            onClick={onToggle}
+            disabled={state.loading || state.busy}
+            className={switchClass}
+            onClick={() => { props.toggle() }}
           >
             <span className={css.knob} />
           </button>
         </div>
         <div className={css.statusRow}>
-          {status.failure === null ? (
-            <>{t('pidLabel')} : <span className={css.pid}>{status.pid || t('noPid')}</span></>
-          ) : status.failure.kind === 'endpoint' ? (
-            // Wiring problem: the host serves no such route. Say what that means
-            // and that the toggle can be retried, instead of echoing a 404.
+          {state.failure === null ? (
+            <>{t('pidLabel')} : <span className={css.pid}>{state.pid || t('noPid')}</span></>
+          ) : state.failure.kind === 'endpoint' ? (
             <>
               <span className={css.error}>{t('endpointHint')}</span>
-              <span className={css.detail}>{t('retry')}{status.failure.detail ? ` (${status.failure.detail})` : ''}</span>
+              <span className={css.detail}>{t('retry')}{state.failure.detail ? ' (' + state.failure.detail + ')' : ''}</span>
             </>
           ) : (
-            // The host answered: the headline above is the localized refusal, so
-            // the dimmed line keeps its raw diagnostics.
-            <span className={css.detail}>{status.failure.detail}</span>
+            <span className={css.detail}>{state.failure.detail}</span>
           )}
         </div>
       </section>
 
       <section className={css.card}>
         <h3 className={css.cardTitle}>{t('commandSection')}</h3>
-        {configLoading ? (
-          <div className={css.fieldError}>{t('detecting')}</div>
-        ) : loadError ? (
-          <div className={css.fieldError}>{loadError}</div>
-        ) : (
-          <div className={css.fields}>
-            {fieldDefs.map((fd) => (
-              <div className={css.field} key={fd.key}>
-                <label className={css.fieldLabel}>{fd.label}</label>
-                <input
-                  className={`${css.fieldInput}${fields[fd.key].error ? ` ${css.fieldInputError}` : ''}`}
-                  value={fields[fd.key].value}
-                  disabled={fields[fd.key].saving}
-                  onChange={(e) => setFields((prev) => ({ ...prev, [fd.key]: { ...prev[fd.key], value: e.target.value, error: null } }))}
-                  onBlur={() => { void saveField(fd.key, fields[fd.key].value) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                />
-                <div className={css.fieldDesc}>{fd.desc}</div>
-                {fields[fd.key].saving
-                  ? <div className={css.fieldDesc}>{t('saving')}</div>
-                  : fields[fd.key].error
-                    ? <div className={css.fieldError}>{fields[fd.key].error}</div>
-                    : null}
-              </div>
-            ))}
-          </div>
-        )}
+        <SettingsForm labels={formLabels(t)} state={state} onSave={props.save} onDiscard={props.discard}>
+          <SettingsValueField
+            id="plugin-config-wsl-distro"
+            label={t('distroLabel')}
+            hint={t('distroDesc')}
+            overriddenLabel={t('overridden')}
+            resetLabel={t('reset')}
+            invalidLabel={t('invalidValue')}
+            disabled={disabled}
+            {...state.wslDistName}
+            onEdit={(text) => { props.edit('wslDistName', text) }}
+            onReset={() => { props.resetField('wslDistName') }}
+          />
+          <SettingsValueField
+            id="plugin-config-wsl-user"
+            label={t('userLabel')}
+            hint={t('userDesc')}
+            overriddenLabel={t('overridden')}
+            resetLabel={t('reset')}
+            invalidLabel={t('invalidValue')}
+            disabled={disabled}
+            {...state.wslUserName}
+            onEdit={(text) => { props.edit('wslUserName', text) }}
+            onReset={() => { props.resetField('wslUserName') }}
+          />
+          <SettingsValueField
+            id="plugin-config-wsl-exec"
+            label={t('wslExecLabel')}
+            hint={t('wslExecDesc')}
+            overriddenLabel={t('overridden')}
+            resetLabel={t('reset')}
+            invalidLabel={t('invalidValue')}
+            disabled={disabled}
+            {...state.wslExecPath}
+            onEdit={(text) => { props.edit('wslExecPath', text) }}
+            onReset={() => { props.resetField('wslExecPath') }}
+          />
+        </SettingsForm>
       </section>
     </div>
   )

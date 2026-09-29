@@ -6,8 +6,11 @@
 > **This is an unofficial third-party project.** This project is not an official DeepSeek product, and is not developed, published, endorsed, or supported by DeepSeek, nor does it represent DeepSeek's position. `DeepSeek`, `DeepSeek Harness`, `dsh` and related names, logos, and trademarks belong to their respective owners. For keep-alive issues, please submit them to this repository; do not contact DeepSeek official support.
 > <br>This plugin is completely AI-generated and distributed under the MIT license.
 
-Provides a **Keep-Alive** toggle in the **DSH WebUI** settings to prevent WSL distros from being automatically shut down by Windows when idle.
-When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` and shows the current dbus-daemon PID in the settings UI.
+> [!NOTE]
+> **v0.2.0 official-alignment rewrite**: configuration is now the row's **Volatile Config**, persisted by the DSH settings service into the profile's `cordis.patch.yml` (no more `~/.dsh/wsl-keepalive.json`); the page moved from the **Settings → Plugins** tab to **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** (`plugins.row.config`); the host endpoints are now **Connection exact Fetch routes** on the authenticated `/api` bridge instead of raw `webServer` routes.
+
+Provides a **Keep-Alive** toggle on the **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** page of the **DSH WebUI** to prevent WSL distros from being automatically shut down by Windows when idle.
+When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` and shows the current dbus-daemon PID on that component page.
 
 ---
 
@@ -15,14 +18,14 @@ When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` an
 
 | Capability | Description |
 | --- | --- |
-| Keep-Alive toggle | Adds a **Keep-Alive** row under **Settings → Plugins**; flip it to enable/disable WSL keep-alive |
+| Keep-Alive toggle | Flip the switch on the **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** page to enable/disable WSL keep-alive |
 | Status / PID display | The subtitle shows `Enabled · PID <dbus-daemon>` or `Disabled` in real time, plus the distro name (e.g. `Enabled · PID 498 · Arch`) |
 | Duplicate-start protection | Runs `pgrep -x dbus-daemon` before enabling; if already running, returns immediately without starting a duplicate |
 | Precise stop | On disable, `kill`s only the dbus-daemon PIDs recorded in memory / detected, without indiscriminately killing all dbus-daemon processes |
-| Auto-detect wsl.exe | When `wsl-exec-path` is not configured, auto-detects `/mnt/c/Windows/System32/wsl.exe` and writes it to the config if present |
-| Command-config validation | The distro/user/wsl.exe items under **Command configuration** carry descriptions plus runtime validation — a failed check reverts the change and shows the reason in red, a successful one persists |
-| Config persistence | Config is stored at `${DSH_HOME:-~/.dsh}/wsl-keepalive.json`, persists across restarts / sessions |
-| Localized UI | WebUI display text supports Chinese (`zh`) and English (`en`), defaulting/falling back to English; the dictionary is registered into the DSH locale service and follows DSH UI language switches in real time |
+| Auto-detect wsl.exe | When `wslExecPath` is empty, falls back to `/mnt/c/Windows/System32/wsl.exe` (read-only; no config file is written) |
+| Command configuration | The distro/user/wsl.exe items under **Command configuration** are edited and saved through the official settings form; runtime failures (toggle/command) surface in the UI, and a save no longer reverts in place |
+| Config persistence | Config is the row's Volatile Config, written into the profile's `cordis.patch.yml`; persists across restarts / sessions |
+| Localized UI | The plugin card title/description come from `meta` in `locale/en.json` and `locale/zh.json`; page copy supports Chinese (`zh`) and English (`en`), defaulting/falling back to English and following DSH UI language switches in real time |
 
 ## 2. Requirements (Prerequisites)
 
@@ -36,25 +39,19 @@ The machine running DSH Web must satisfy:
 
 > Note: Stopping keep-alive only `kill`s the dbus-daemon PIDs recorded/detected by the plugin; it never indiscriminately terminates all dbus-daemon processes in the target.
 
-## 3. Configuration `~/.dsh/wsl-keepalive.json`
+## 3. Configuration
 
-Read at plugin startup; missing fields or a missing file are treated as empty values, and the file is auto-created / written when needed. The path prefers `${DSH_HOME}/wsl-keepalive.json` (falling back to `~/.dsh/wsl-keepalive.json` when `DSH_HOME` is unset), matching the previous config location.
-
-```json
-{
-  "wsl-dist-name": "",
-  "wsl-user-name": "",
-  "wsl-exec-path": "/mnt/c/Windows/System32/wsl.exe"
-}
-```
+Configuration is the plugin row's **Volatile Config**, projected by the DSH settings service as an editable form and persisted into the profile's `cordis.patch.yml` (not a plugin-private file). Open **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** (the config page of the `wsl-keepalive` bundle's row with id `wsl-keepalive`).
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `wsl-dist-name` | string | The target distro name. When **non-empty**, the start command appends `-d ${wsl-dist-name}`; when **empty**, the default distro is used. Checked at runtime — if the distro does not exist the change is reverted and an error is shown |
-| `wsl-user-name` | string | The user that runs the keep-alive process inside the distro. When **non-empty**, the start command appends `--user ${wsl-user-name}`; when **empty**, the distro default user is used. Checked at runtime — if the user does not exist the change is reverted and an error is shown |
-| `wsl-exec-path` | string | Absolute path to `wsl.exe` on the Linux filesystem. When **empty**, `/mnt/c/Windows/System32/wsl.exe` is auto-detected at startup and written to the config if present; if neither exists it errors and enters an error state. Checked at runtime — if the file does not exist the change is reverted and an error is shown |
+| `wslDistName` | string | Target distro name. When **non-empty** the start command appends `-d <name>`; when **empty** the default distro is used |
+| `wslUserName` | string | User that runs the keep-alive process inside the target distro. When **non-empty** the start command appends `--user <name>`; when **empty** the distro default user is used |
+| `wslExecPath` | string | Absolute path to `wsl.exe` on the Linux filesystem. When **empty** it falls back to `/mnt/c/Windows/System32/wsl.exe` (read-only probe); if neither exists the plugin errors |
 
-On the WSL Keep-Alive tab under **Settings → Plugins**, the three command-config items each carry a description plus runtime validation: editing commits on blur/Enter, a failed check reverts that change and shows the reason in red (distro missing / user missing / wsl.exe missing), and a successful check persists to the config file above.
+Saving goes through the shared DSH settings form (`ctx.configForms` → profile patch): a schema-valid save is written and takes effect **without a restart** (the service re-reads the Volatile Config on every status/toggle). Whether the distro/user/wsl.exe actually exist is validated at execution time and surfaced in the status area, instead of silently reverting the save.
+
+> **Automatic import from the old version**: on first start, if the legacy `${DSH_HOME:-~/.dsh}/wsl-keepalive.json` exists, its non-empty fields are imported once into this row's settings document (written to the profile's `cordis.patch.yml`), and the old file is renamed to `wsl-keepalive.json.imported`. Fields already configured are not overwritten; if the write is refused, the legacy file is kept and the import is retried on the next start.
 
 ## 4. Installation
 
@@ -82,7 +79,7 @@ dsh plugin --profile web add link:$(pwd)
 # restart dsh after this
 ```
 
-After the restart, the **Keep-Alive** toggle appears under **Settings → Plugins** in the WebUI.
+After the restart, open **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** in the WebUI to see the **Keep-Alive** toggle.
 
 ### Uninstall
 
@@ -91,13 +88,13 @@ dsh plugin --profile web remove wsl-keepalive
 # restart dsh
 ```
 
-The config file `~/.dsh/wsl-keepalive.json` is retained; delete it manually if needed.
+The old config file `${DSH_HOME:-~/.dsh}/wsl-keepalive.json` is retained; delete it manually if needed.
 
 ## 5. How It Works
 
-- **Communication**: The plugin Host exposes four same-origin JSON endpoints — `/api/wsl-keepalive/status`, `/api/wsl-keepalive/set`, and `/api/wsl-keepalive/config` (GET/POST); the browser half calls them with `fetch`.
-- **The `webServer` carrier is optional (DSH ≥ 0.1.5)**: since 0.1.5 the HTTP carrier is an *optional* capability — non-HTTP shells (Electron, worker carriers) load the same client stack without it. The plugin therefore does not put `webServer` in its static `inject` (that would leave the row permanently `pending` and fail the boot activation audit); instead `apply` **always** acquires the carrier with `ctx.inject(['webServer'], …)` — the same shape as DSH's own `/api` route in `dsh-client-connection`. That call creates a child fiber which runs as soon as the carrier is available (already bound or bound later) while the row itself activates unconditionally. Route registration lives inside that fiber's `ctx.effect`, so the routes are removed with the carrier and rebuilt if it returns; with no carrier the row still activates and the routes simply 404. Do not read `ctx.webServer` on the row's own context — cordis 4 throws `cannot get property "webServer" without inject` for an undeclared service property.
-- **Explicit service references**: the Host half imports only the contracts it uses — `Context` from `@deepseek-ai/cordis` and `WebRoute` from `@deepseek-ai/dsh-host-webserver` (whose `declare module` augmentation makes `ctx.webServer` a typed property). The browser half imports `dsh-client-ui-renderer` (`ctx.slots`), `dsh-client-ui-settings` (the `settings.plugins.tab` slot declaration), `dsh-client-ui-slots` (`PropsLocale`/`LocaleNamespaceMap`), and `dsh-client-locale` (`ctx.locale`). It does **not** use `ctx.shell`/`ctx.fs`: the keep-alive commands run on the host plane through Node's own `child_process`/`fs`, so `dsh-shell`/`dsh-fs` are no longer dependencies (the v0.1.2-rc.1 era imported them as empty `import type {}` augmentations that were erased at build time anyway).
+- **Communication**: the plugin Host provides two same-origin JSON endpoints through **Connection exact Fetch routes** — `/api/wsl-keepalive/status` (GET) and `/api/wsl-keepalive/set` (POST); the browser half calls them with `fetch`. Configuration no longer uses HTTP: the DSH settings form (`ctx.configForms`) writes it into the profile's Cordis patch.
+- **The `connection` carrier is optional**: `connection` is an optional capability (non-HTTP shells do not provide it). The plugin therefore does not put it in its static `inject` (that would leave the row permanently `pending`); instead `apply` acquires it with `ctx.inject(['connection'], …)` and calls `ctx.connection.fetch.register(route)` inside that child fiber's `ctx.effect`, so the routes are removed with the carrier and rebuilt if it returns. Registration sits under Connection's `/api` prefix, so it passes `ctx.connection.admit()` (Host/Origin plus browser-session auth) instead of bypassing that fence.
+- **Explicit service references**: the Host half imports `Context`/`Volatile` from `@deepseek-ai/cordis`, `@deepseek-ai/schemastery` (the Config schema), `@deepseek-ai/dsh-client-connection` (`ctx.connection` + `ConnectionFetchRoute`), and `@deepseek-ai/dsh-settings` (page policy). The browser half imports `dsh-client-ui-renderer` (`ctx.slots`), `dsh-client-ui-plugin-manager` (the `plugins.row.config` slot declaration), `dsh-client-ui-settings` (`ctx.configForms`), `dsh-client-ui-primitives` (`SettingsForm`/`SettingsValueField`), `dsh-client-ui-slots` (`PropsLocale`/`LocaleNamespaceMap`), `dsh-client-locale` (`ctx.locale`), and `dsh-client-store` (`SnapshotStore`). It does **not** use `ctx.shell`/`ctx.fs`: the keep-alive commands run on the host plane through Node's own `child_process`.
 - **Keep-alive state**: dbus-daemon PIDs are recorded by the Host in memory after each query and live for the plugin's lifetime; the real state is re-queried after a restart.
 - **Two failure families, never conflated**:
   | Family | Trigger | What the tab shows |
@@ -117,13 +114,15 @@ wsl-keepalive/
 ├── cordis.patch.yml        # plugin row declaration (injected on `dsh plugin add`)
 ├── README.md               # this document (Chinese original)
 ├── README.eng.md           # this document (English translation)
+├── locale/                 # localized plugin-card metadata: en.json / zh.json (meta.title / meta.description)
 ├── shared/                 # common build helpers (web-platform.ts / tsdown.client.ts)
 └── src/
-    ├── index.ts            # Host plugin entry: acquires the carrier via ctx.inject(['webServer']) and registers /api/wsl-keepalive/* routes
-    ├── service.ts          # keep-alive core: config read/write, PID tracking, status/start/stop
-    ├── routes.ts           # HTTP routes (status / set / config)
+    ├── index.ts            # Host plugin entry: exports the Volatile Config schema and registers /api/wsl-keepalive/* Fetch routes via ctx.inject(['connection'])
+    ├── service.ts          # keep-alive core: reads the Volatile Config, PID tracking, status/start/stop
+    ├── routes.ts           # Connection exact Fetch routes (status / set)
     └── client/
-        ├── index.ts        # Client module: registers the plugin config tab under "Settings → Plugins"
+        ├── index.ts        # Client module: registers the plugins.row.config page (Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component)
+        ├── controller.ts   # settings form model over ctx.configForms + live status/toggle
         ├── KeepAliveConfig.tsx
         ├── host-endpoint.ts # same-origin JSON fetch + failure classification (endpoint vs host)
         ├── i18n.ts         # localization dictionaries (en / zh), registered into the DSH locale service
