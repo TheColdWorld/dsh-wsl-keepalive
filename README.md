@@ -8,6 +8,9 @@
 > [!NOTE]
 > **v0.2.0 官方对齐改造**：配置项改为本行的 **Volatile Config**，由 DSH settings 服务持久化到 profile 的 `cordis.patch.yml`（不再是 `~/.dsh/wsl-keepalive.json`）；配置界面从「设置 → 插件」标签页迁移到**主页面 → 插件 → WSL保活 → WSL保活组件**（`plugins.row.config`）；宿主端点改经 **Connection 精确 Fetch 路由**（`/api` 认证），不再直注册 `webServer`。
 
+> [!NOTE]
+> **环境自检升级**：启动判定不再只看内核是否含 `microsoft`，而是以「能否真正执行 `wsl.exe`」为准——先解析 `wsl.exe` 候选路径，再收集 interop 证据（`WSL_INTEROP` 活动 socket、`/run/WSL/*_interop`、已启用的 `WSLInterop` binfmt），最后对候选执行一次真实功能探测（`wsl.exe --list --quiet`）。WSL2 宿主机上的容器、`/etc/wsl.conf` 关闭 interop、或 `wsl.exe` 缺失都会得到各自明确的本地化原因；内核字符串只用于解释失败，不再作为放行条件。
+
 在 **DSH WebUI** 的**主页面 → 插件 → WSL保活 → WSL保活组件**页里提供「保活」开关，用于防止 WSL 发行版因空闲被 Windows 自动关闭。
 切换开关时，由 DSH 宿主机执行 dbus-daemon 的启动 / 停止 / 查询，并将当前 dbus-daemon 的 PID 显示在该组件页面上。
 
@@ -22,6 +25,7 @@
 | 防重复启动 | 开启前先 `pgrep -x dbus-daemon` 查重，已在运行则直接返回，不重复拉起 |
 | 精确停止 | 关闭时仅对内存记录/检测到的 dbus-daemon PID 逐个 `kill`，不无差别终止所有 dbus-daemon |
 | 自动探测 wsl.exe | `wslExecPath` 为空时使用 `/mnt/c/Windows/System32/wsl.exe` 回退（只读，不再写配置文件） |
+| 环境自检 | 启动时解析 `wsl.exe` 并做一次真实功能探测（`wsl.exe --list --quiet`），以 interop 是否可用为准判定；失败原因按 `interopDisabled` / `containerNoInterop` / `errWslExecMissing` 等稳定码本地化显示 |
 | 命令配置 | 「命令配置」区域的发行版/用户/wsl.exe 三项通过官方设置表单编辑并保存；具体校验在运行时（开关/命令）报错，不再在保存时撤销编辑 |
 | 配置持久化 | 配置是本行的 Volatile Config，写入 profile 的 `cordis.patch.yml`，跨重启/跨会话保留 |
 | 本地化显示 | 插件卡片标题/描述由 `locale/en.json` 与 `locale/zh.json` 的 `meta` 提供；页面文案支持中文（zh）与英文（en），默认/回退为英文，随 DSH UI 语言切换实时更新 |
@@ -30,11 +34,13 @@
 
 运行 DSH Web 的机器需满足：
 
-1. **WSL Interop**：本插件的原理时通过wsl.exe拉起dbus-daemon防止发行版空闲，需要WSL Interop使得在Wsl中调用wsl.exe --exec
+1. **WSL Interop（硬性）**：插件通过 `wsl.exe --exec` 拉起 dbus-daemon 防止发行版空闲，因此在 Linux 发行版内必须能**真正执行** `wsl.exe`。启动时会解析 `wsl.exe` 候选路径并做一次真实功能探测（`wsl.exe --list --quiet`），探测成功才算通过；仅内核字符串含 `microsoft` 不会被当作放行条件（WSL2 宿主机上的容器也共享同一内核却没有 interop）。
 2. **wsl.exe 可访问**：`/mnt/c/Windows/System32/wsl.exe`，或通过配置 `wsl-exec-path` 指定其在 Linux 环境下的绝对路径。
 3. **dbus-launch**：目标发行版内已安装 `dbus-launch`（`/usr/bin/dbus-launch`）。
 4. **DSH Web**：已通过 Web profile 方式安装插件（见「安装」）。
 5. **Node.js**：构建工具链运行所需（`^22.19.0 || >=24.0.0`）。
+
+> **环境判定顺序**：① 解析 `wsl.exe` 候选（配置优先，其次回退路径）；② 收集 interop 证据（`WSL_INTEROP` 指向的活动 socket、`/run/WSL/*_interop`、binfmt_misc 中启用的 `WSLInterop`）；③ 对候选执行一次真实功能探测（权威结论）；④ 内核与容器标记只用于解释失败原因。判定核心是纯函数 `classifyWslEnv`（见 `src/env.ts`），对应的拒绝码见「五、工作原理」。
 
 > 注：停止保活仅对插件记录/检测到的 dbus-daemon PID 精确 `kill`，不会无差别终止目标内所有 dbus-daemon。
 
@@ -46,9 +52,9 @@
 | --- | --- | --- |
 | `wslDistName` | 字符串 | 目标发行版名。**非空**时启动命令追加 `-d <name>`；**为空**时使用默认发行版 |
 | `wslUserName` | 字符串 | 在目标发行版内运行保活进程的用户。**非空**时启动命令追加 `--user <name>`；**为空**时使用该发行版默认用户 |
-| `wslExecPath` | 字符串 | `wsl.exe` 在 Linux 文件系统下的绝对路径。**为空**时回退到 `/mnt/c/Windows/System32/wsl.exe`（只读探测）；两者皆无则报错进入错误态 |
+| `wslExecPath` | 字符串 | `wsl.exe` 在 Linux 文件系统下的绝对路径。**为空**时回退到 `/mnt/c/Windows/System32/wsl.exe`（只读探测）；两者皆无时按 `errWslExecMissing`（并带上候选路径）拒绝启动 |
 
-保存由 DSH settings 表单统一提交（`ctx.configForms` → profile patch）：schema 校验通过即写入，随后**无需重启**生效（服务在每次状态/开关时重读 Volatile Config）。发行版/用户/wsl.exe 是否真实存在的运行时校验发生在实际执行命令时，失败会通过状态区显示，而不会在保存时静默撤销。
+保存由 DSH settings 表单统一提交（`ctx.configForms` → profile patch）：schema 校验通过即写入，随后**无需重启**生效（服务在每次状态/开关时重读 Volatile Config）。发行版/用户是否真实存在的运行时校验发生在实际执行命令时，失败会通过状态区显示，而不会在保存时静默撤销；`wsl.exe` 能否执行则在每次启动检查中用一次真实功能探测确认（成功结果进程内缓存，负结果缓存 15 秒，便于修复后及时恢复，也避免 UI 轮询反复触发探测）。
 
 > **从旧版自动迁移**：首次启动时若检测到旧的 `${DSH_HOME:-~/.dsh}/wsl-keepalive.json`，其非空字段会被一次性导入本行的设置文档（写入 profile 的 `cordis.patch.yml`），随后旧文件重命名为 `wsl-keepalive.json.imported`。已被配置过的字段不会被覆盖；若写入被拒绝则保留旧文件并在下次启动重试。
 
@@ -99,8 +105,20 @@ dsh plugin --profile web remove wsl-keepalive
   | 类别 | 触发条件 | 界面表现 |
   | --- | --- | --- |
   | **端点不可达**（`endpoint`） | 宿主根本没有 `/api/wsl-keepalive/*` 这条路由：该外壳不提供 HTTP 载体（Electron / worker 载体）、插件行未激活，或网络层直接失败。包含“SPA 兜底把未知路径用 `index.html` + HTTP 200 回包”这种伪成功 | 副标题：`不可用：宿主未挂载 /api/wsl-keepalive/* 端点（响应：HTTP …）`；状态行：红色“常见原因：该外壳不提供 HTTP 载体 / 插件行未激活”+ 灰色“开关仍可点击重试”与原始终点细节 |
-  | **宿主拒绝**（`host`） | 请求到达了宿主，宿主明确拒绝：非 WSL 环境、wsl.exe 路径缺失、命令执行失败 | 副标题：按 DSH UI 语言本地化的原因（`当前不是 WSL 环境（内核：…）` 等）；状态行：灰色显示宿主原始细节（英文说明 / 命令行 / 退出码） |
+  | **宿主拒绝**（`host`） | 请求到达了宿主，宿主明确拒绝：非 WSL 环境、无 WSL interop（含 `wsl.conf` 关闭 / WSL2 宿主机上的容器）、wsl.exe 路径缺失、命令执行失败 | 副标题：按 DSH UI 语言本地化的原因（`当前不是 WSL 环境（内核：…）`、`WSL interop 不可用…` 等）；状态行：灰色显示宿主原始细节（英文说明 / 命令行 / 退出码） |
   
+  **宿主拒绝的 `errorCode` 一览**（文案均由 `src/client/i18n.ts` 本地化）：
+
+  | `errorCode` | 含义 |
+  | --- | --- |
+  | `envNotWsl` | 非 WSL 环境：内核无 `microsoft` 签名，也没有任何 interop 标记 |
+  | `containerNoInterop` | 内核像 WSL（或检测到容器），但没有任何 interop 通道；通常是 WSL2 宿主机上的容器 |
+  | `interopDisabled` | `/etc/wsl.conf` 的 `[interop] enabled=false` 明确关闭了 interop |
+  | `interopUnavailable` | 有 interop 线索，但真实执行 `wsl.exe` 失败（ENOEXEC / EACCES / 超时 / 非零退出） |
+  | `errWslExecMissing` | 在候选路径（配置值或回退路径）未找到 `wsl.exe` |
+  | `errStartFailed` | 启动保活命令以非零码退出 |
+  | `errCommandFailed` | 命令本身执行失败（spawn 失败 / 超时等基础设施错误） |
+
   为此 `/api/wsl-keepalive/status` 与 `/set` 的响应新增两个字段：`errorCode`（稳定本地化码，由客户端字典 `src/client/i18n.ts` 拥有）与 `errorParams`（模板参数）；原有 `error` 保留为**技术细节**，不再作为界面主文案。
 
 ## 六、目录结构
@@ -118,6 +136,7 @@ wsl-keepalive/
 └── src/
     ├── index.ts            # Host 插件入口：导出 Volatile Config schema，并用 ctx.inject(['connection']) 注册 /api/wsl-keepalive/* Fetch 路由
     ├── service.ts          # 保活核心：读取 Volatile Config、PID 记录、status/start/stop
+    ├── env.ts              # 环境判定：interop 证据 + wsl.exe 功能探测 + 容器/内核归类（纯函数 classifyWslEnv）
     ├── routes.ts           # Connection 精确 Fetch 路由（status / set）
     └── client/
         ├── index.ts        # Client 模块：注册 plugins.row.config 页（主页面 → 插件 → WSL保活 → WSL保活组件）

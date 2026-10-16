@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc -b && tsdown",
     "typecheck": "tsc -b --pretty false",
+    "test": "node --test src/env.test.ts",
     "prepare": "tsdown"
   },
   "main": "lib/index.js",

@@ -30,6 +30,9 @@ export type KeepAliveKey =
   | 'endpointHint'
   | 'envNotWsl'
   | 'errWslExecMissing'
+  | 'interopDisabled'
+  | 'interopUnavailable'
+  | 'containerNoInterop'
   | 'errStartFailed'
   | 'errCommandFailed'
   | 'distroLabel'
@@ -67,7 +70,10 @@ export const en: Record<KeepAliveKey, string> = {
   errHostError: 'The host answered with an error: HTTP {status}',
   endpointHint: 'Likely causes: this shell provides no HTTP carrier, or the plugin row is not active in this profile.',
   envNotWsl: 'Not a WSL environment (kernel: {kernel}) — this plugin needs wsl.exe, so it cannot work here.',
-  errWslExecMissing: 'wsl.exe path is empty and the fallback {fallback} does not exist, so keep-alive cannot start.',
+  errWslExecMissing: 'wsl.exe was not found at {path}, so keep-alive cannot start.',
+  interopDisabled: 'WSL interop is disabled in /etc/wsl.conf ([interop] enabled=false), so wsl.exe cannot run here.',
+  interopUnavailable: 'WSL interop is unavailable, so wsl.exe cannot run here.',
+  containerNoInterop: 'This is a container on a WSL2 host: the kernel looks like WSL, but there is no WSL interop, so wsl.exe cannot run here.',
   errStartFailed: 'Starting keep-alive failed (exit {exit}): {detail}',
   errCommandFailed: 'Command failed: {detail}',
   distroLabel: 'Distro that runs the keep-alive process',
@@ -106,7 +112,10 @@ export const zh: Record<KeepAliveKey, string> = {
   errHostError: '宿主返回错误：HTTP {status}',
   endpointHint: '常见原因：该外壳不提供 HTTP 载体，或本插件行在当前 profile 中未激活。',
   envNotWsl: '当前不是 WSL 环境（内核：{kernel}）——本插件依赖 wsl.exe，无法在此工作。',
-  errWslExecMissing: 'wsl.exe 路径为空，且默认路径 {fallback} 不存在，保活无法启动',
+  errWslExecMissing: '未在 {path} 找到 wsl.exe，保活无法启动。',
+  interopDisabled: '/etc/wsl.conf 中禁用了 WSL interop（[interop] enabled=false），wsl.exe 无法在此运行。',
+  interopUnavailable: 'WSL interop 不可用，wsl.exe 无法在此运行。',
+  containerNoInterop: '当前是 WSL2 宿主机上的容器：内核看起来像 WSL，但没有 WSL interop，wsl.exe 无法在此运行。',
   errStartFailed: '启动保活失败（退出码 {exit}）：{detail}',
   errCommandFailed: '命令执行失败：{detail}',
   distroLabel: '运行保活进程的发行版',

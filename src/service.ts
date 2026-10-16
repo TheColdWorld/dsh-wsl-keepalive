@@ -189,21 +189,18 @@ export class KeepAliveService {
   }
 
   /**
-   * Startup sequence: refuse outside WSL, then resolve wsl-exec-path /
-   * wsl-dist-name / wsl-user-name from the live Config.
+   * Startup sequence: resolve the wsl.exe candidate, then let the environment
+   * check decide whether this host can actually run it. The check owns the
+   * refusal code (interop / kernel / container), so the message matches the
+   * client dictionary.
    */
   private async init(): Promise<Startup> {
-    const env = checkWslEnv()
-    if (!env.ok) {
-      const detail = env.reason ?? `Not a WSL environment; this plugin cannot run (${env.detail})`
-      console.error(`[wsl-keepalive] refused to run: ${detail}`)
-      return { failure: { code: 'envNotWsl', params: { kernel: env.kernel || 'unknown' }, detail } }
-    }
     const exe = this.resolveExec()
-    if (!exe) {
-      const detail = `wsl-exec-path is empty and ${this.FALLBACK_WSL_EXE} does not exist; cannot start keep-alive`
-      console.error(detail)
-      return { failure: { code: 'errWslExecMissing', params: { fallback: this.FALLBACK_WSL_EXE }, detail } }
+    const env = checkWslEnv({ wslExecPath: exe, fallbackPath: this.FALLBACK_WSL_EXE })
+    if (!env.ok) {
+      const detail = env.reason ?? `cannot start keep-alive (${env.detail})`
+      console.error(`[wsl-keepalive] refused to run: ${detail}`)
+      return { failure: { code: env.code, params: env.params ?? undefined, detail } }
     }
     return {
       wslExecPath: exe,

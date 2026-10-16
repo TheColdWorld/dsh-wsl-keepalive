@@ -9,6 +9,9 @@
 > [!NOTE]
 > **v0.2.0 official-alignment rewrite**: configuration is now the row's **Volatile Config**, persisted by the DSH settings service into the profile's `cordis.patch.yml` (no more `~/.dsh/wsl-keepalive.json`); the page moved from the **Settings → Plugins** tab to **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** (`plugins.row.config`); the host endpoints are now **Connection exact Fetch routes** on the authenticated `/api` bridge instead of raw `webServer` routes.
 
+> [!NOTE]
+> **Environment check upgraded**: startup no longer treats a `microsoft` kernel string as proof of WSL. It now resolves the `wsl.exe` candidate, gathers interop evidence (`WSL_INTEROP` live socket, `/run/WSL/*_interop`, an enabled `WSLInterop` binfmt entry), and then runs a real functional probe (`wsl.exe --list --quiet`) as the authoritative verdict. A container on a WSL2 host, interop disabled in `/etc/wsl.conf`, or a missing `wsl.exe` each get their own localized reason; the kernel string only explains a refusal and never grants access.
+
 Provides a **Keep-Alive** toggle on the **Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component** page of the **DSH WebUI** to prevent WSL distros from being automatically shut down by Windows when idle.
 When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` and shows the current dbus-daemon PID on that component page.
 
@@ -23,6 +26,7 @@ When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` an
 | Duplicate-start protection | Runs `pgrep -x dbus-daemon` before enabling; if already running, returns immediately without starting a duplicate |
 | Precise stop | On disable, `kill`s only the dbus-daemon PIDs recorded in memory / detected, without indiscriminately killing all dbus-daemon processes |
 | Auto-detect wsl.exe | When `wslExecPath` is empty, falls back to `/mnt/c/Windows/System32/wsl.exe` (read-only; no config file is written) |
+| Environment self-check | Resolves `wsl.exe` and runs a real functional probe (`wsl.exe --list --quiet`) at startup; interop availability is the gate, and failures surface as stable localized codes such as `interopDisabled` / `containerNoInterop` / `errWslExecMissing` |
 | Command configuration | The distro/user/wsl.exe items under **Command configuration** are edited and saved through the official settings form; runtime failures (toggle/command) surface in the UI, and a save no longer reverts in place |
 | Config persistence | Config is the row's Volatile Config, written into the profile's `cordis.patch.yml`; persists across restarts / sessions |
 | Localized UI | The plugin card title/description come from `meta` in `locale/en.json` and `locale/zh.json`; page copy supports Chinese (`zh`) and English (`en`), defaulting/falling back to English and following DSH UI language switches in real time |
@@ -31,11 +35,13 @@ When toggled, the DSH host starts/stops/queries the dbus-daemon via `wsl.exe` an
 
 The machine running DSH Web must satisfy:
 
-1. **WSL Interop**: This plugin works by launching dbus-daemon through wsl.exe to prevent the distro from going idle; it needs WSL Interop so that `wsl.exe --exec` can be called from within WSL.
+1. **WSL Interop (mandatory)**: The plugin launches dbus-daemon through `wsl.exe --exec` to prevent the distro from going idle, so `wsl.exe` must be genuinely executable from inside the Linux distro. At startup the plugin resolves the `wsl.exe` candidate and runs a real functional probe (`wsl.exe --list --quiet`); only a successful probe passes. A `microsoft` kernel string alone does not grant access (a container on a WSL2 host shares the same kernel but has no interop).
 2. **wsl.exe accessible**: `/mnt/c/Windows/System32/wsl.exe`, or set `wsl-exec-path` to its absolute path under the Linux environment.
 3. **dbus-launch**: `dbus-launch` (`/usr/bin/dbus-launch`) must be installed inside the target distro.
 4. **DSH Web**: The plugin must be installed via the Web profile (see "Installation").
 5. **Node.js**: Required for the build toolchain (`^22.19.0 || >=24.0.0`).
+
+> **Detection order**: ① resolve the `wsl.exe` candidate (config first, fallback second); ② gather interop evidence (`WSL_INTEROP` live socket, `/run/WSL/*_interop`, an enabled `WSLInterop` binfmt entry); ③ run a real functional probe of the candidate (authoritative); ④ kernel / container markers only label the failure. The core is the pure function `classifyWslEnv` (see `src/env.ts`); the refusal codes are listed in section 5.
 
 > Note: Stopping keep-alive only `kill`s the dbus-daemon PIDs recorded/detected by the plugin; it never indiscriminately terminates all dbus-daemon processes in the target.
 
@@ -47,9 +53,9 @@ Configuration is the plugin row's **Volatile Config**, projected by the DSH sett
 | --- | --- | --- |
 | `wslDistName` | string | Target distro name. When **non-empty** the start command appends `-d <name>`; when **empty** the default distro is used |
 | `wslUserName` | string | User that runs the keep-alive process inside the target distro. When **non-empty** the start command appends `--user <name>`; when **empty** the distro default user is used |
-| `wslExecPath` | string | Absolute path to `wsl.exe` on the Linux filesystem. When **empty** it falls back to `/mnt/c/Windows/System32/wsl.exe` (read-only probe); if neither exists the plugin errors |
+| `wslExecPath` | string | Absolute path to `wsl.exe` on the Linux filesystem. When **empty** it falls back to `/mnt/c/Windows/System32/wsl.exe` (read-only probe); if neither exists the plugin refuses to start with `errWslExecMissing` (naming the candidate path) |
 
-Saving goes through the shared DSH settings form (`ctx.configForms` → profile patch): a schema-valid save is written and takes effect **without a restart** (the service re-reads the Volatile Config on every status/toggle). Whether the distro/user/wsl.exe actually exist is validated at execution time and surfaced in the status area, instead of silently reverting the save.
+Saving goes through the shared DSH settings form (`ctx.configForms` → profile patch): a schema-valid save is written and takes effect **without a restart** (the service re-reads the Volatile Config on every status/toggle). Whether the distro/user actually exist is validated at execution time and surfaced in the status area, instead of silently reverting the save; whether `wsl.exe` is executable is confirmed by a real functional probe on every startup check (positive results are cached for the process lifetime, negative results for 15 seconds, so a fix is noticed and UI polling does not re-probe constantly).
 
 > **Automatic import from the old version**: on first start, if the legacy `${DSH_HOME:-~/.dsh}/wsl-keepalive.json` exists, its non-empty fields are imported once into this row's settings document (written to the profile's `cordis.patch.yml`), and the old file is renamed to `wsl-keepalive.json.imported`. Fields already configured are not overwritten; if the write is refused, the legacy file is kept and the import is retried on the next start.
 
@@ -100,8 +106,20 @@ The old config file `${DSH_HOME:-~/.dsh}/wsl-keepalive.json` is retained; delete
   | Family | Trigger | What the tab shows |
   | --- | --- | --- |
   | **Endpoint unreachable** (`endpoint`) | The host serves no `/api/wsl-keepalive/*` route at all: this shell provides no HTTP carrier (Electron / worker carriers), the plugin row is inactive, or the transport failed outright. Includes the "SPA fallback answers an unknown path with `index.html` and HTTP 200" pseudo-success | Subtitle: `Unavailable: the host does not serve /api/wsl-keepalive/* (response: HTTP …)`; status row: a red "likely causes" line (no HTTP carrier / row inactive) plus a dimmed retry note and the raw endpoint detail |
-  | **Host refusal** (`host`) | The request reached the host and the host refused: not a WSL environment, missing wsl.exe path, or a failed command | Subtitle: the reason localized to the DSH UI language (`Not a WSL environment (kernel: …)`, …); status row: the host's own raw detail (English text / command line / exit code) in dimmed text |
+  | **Host refusal** (`host`) | The request reached the host and the host refused: not a WSL environment, no WSL interop (disabled in `wsl.conf`, or a container on a WSL2 host), a missing `wsl.exe` path, or a failed command | Subtitle: the reason localized to the DSH UI language (`Not a WSL environment (kernel: …)`, `WSL interop is unavailable…`, …); status row: the host's own raw detail (English text / command line / exit code) in dimmed text |
   
+  **Host refusal `errorCode` values** (all localized by `src/client/i18n.ts`):
+
+  | `errorCode` | Meaning |
+  | --- | --- |
+  | `envNotWsl` | Not a WSL environment: the kernel has no `microsoft` signature and there is no interop marker |
+  | `containerNoInterop` | The kernel looks like WSL (or a container was detected) but there is no interop channel; usually a container on a WSL2 host |
+  | `interopDisabled` | `/etc/wsl.conf` explicitly disables interop (`[interop] enabled=false`) |
+  | `interopUnavailable` | Interop evidence exists, but really executing `wsl.exe` failed (ENOEXEC / EACCES / timeout / non-zero exit) |
+  | `errWslExecMissing` | `wsl.exe` was not found at the candidate path (configured value or fallback) |
+  | `errStartFailed` | The keep-alive start command exited non-zero |
+  | `errCommandFailed` | The command itself failed to execute (spawn failure / timeout and other infrastructure errors) |
+
   To support this, `/api/wsl-keepalive/status` and `/set` now carry two extra fields — `errorCode` (a stable localization code owned by the client dictionary in `src/client/i18n.ts`) and `errorParams` (its template params). The original `error` stays as **technical detail** and is no longer the primary UI message.
 
 ## 6. Directory Structure
@@ -119,6 +137,7 @@ wsl-keepalive/
 └── src/
     ├── index.ts            # Host plugin entry: exports the Volatile Config schema and registers /api/wsl-keepalive/* Fetch routes via ctx.inject(['connection'])
     ├── service.ts          # keep-alive core: reads the Volatile Config, PID tracking, status/start/stop
+    ├── env.ts              # environment check: interop evidence + wsl.exe functional probe + container/kernel labels (pure classifyWslEnv)
     ├── routes.ts           # Connection exact Fetch routes (status / set)
     └── client/
         ├── index.ts        # Client module: registers the plugins.row.config page (Main page → Plugins → WSL Keep-Alive → WSL Keep-Alive component)
