@@ -14,12 +14,11 @@
  */
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
-import { PLATFORM_MODULES, PRELOADED_CLIENT_EXTERNALS } from './web-platform.ts'
+import { PLATFORM_MODULES } from './web-platform.ts'
 
 /**
  * Virtual-id wrapper keeping module CSS away from tsdown's own css pipeline
@@ -36,12 +35,10 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
  * (external) or a leak the purity gate rejects.
  *
  * Kept in sync with the DSH checkout's `packages/client/tsdown.client.ts`.
- * DSH 0.1.5-alpha.2 / 0.1.5-rc.2 added `output-retention`,
- * `host-open-in-app/shared`, and `spill-policy/notice` to this list; this
- * bundle imports none of them, but the list must not drift or a future import
- * fails the gate at build time.
+ * This bundle imports none of these layers, but the list must not drift or a
+ * future import fails the gate at build time.
  */
-export const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|output-retention|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-host-open-in-app\/shared$|@deepseek-ai\/dsh-agent-presets\/display$|@deepseek-ai\/dsh-spill-policy\/notice$)/
+export const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|output-retention|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-native-command\/types$|@deepseek-ai\/dsh-host-open-in-app\/shared$|@deepseek-ai\/dsh-plugin-manager\/registry$|@deepseek-ai\/dsh-agent-preset-registry\/display$|@deepseek-ai\/dsh-api-workspace-controller\/default-workspace$|@deepseek-ai\/dsh-spill-policy\/notice$)/
 
 /** Generated descriptor/codec contribution with no shared runtime identity. */
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
@@ -53,7 +50,7 @@ const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 const SKIP_WORKSPACE_BUILD: UserConfig = { entry: '' }
 
 /** Externals resolved from the loader module table: the platform seed entries. */
-export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, ...PRELOADED_CLIENT_EXTERNALS]
+export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES]
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -96,58 +93,6 @@ export function clientBundle(
     if (face === 'host') return options.hostPhase === true ? node : [SKIP_WORKSPACE_BUILD]
     if (face === 'client') return options.hostPhase === true ? [client] : [...node, client]
     return [...node, client]
-  }
-}
-
-/**
- * The standalone mobile page bundle (served by the plugin's own route). It
- * boots WITHOUT the main UI's module loader, so everything — React, zod, the
- * harness wire contracts — is inlined into one self-contained module script.
- * The page talks to the host through plain fetch/WebSocket over /api.
- * @param id - plugin id (package name), used in tsdown diagnostics.
- * @param entry - the mobile page entry (e.g. `src/mobile/index.tsx`).
- * @returns a fully self-contained browser bundle config.
- */
-export function mobileBundle(id: string, entry: string): UserConfig {
-  const mobileRequire = createRequire(import.meta.url)
-  return {
-    name: `${id}/mobile`,
-    entry: { mobile: entry },
-    outDir: 'lib',
-    format: 'esm',
-    platform: 'browser',
-    target: 'es2022',
-    dts: false,
-    sourcemap: true,
-    clean: false,
-    // Fully self-contained: no externals, no module table.
-    deps: {
-      neverBundle: [],
-      alwaysBundle: [/.*/],
-    },
-    define: {
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
-    },
-    plugins: [{
-      // Wire contracts resolve through node_modules (the exports map lands on
-      // the real runtime values) instead of the tsconfig paths' declaration
-      // files, which would miss every value export.
-      name: 'dsh-mobile-value-resolution',
-      resolveId(source: string) {
-        const match = /^@deepseek-ai\/dsh-host-apiproxy\/api(?:\/.*)?$/.exec(source)
-        if (match === null) return null
-        try {
-          return mobileRequire.resolve(source)
-        } catch {
-          return null
-        }
-      },
-    }],
-    outputOptions: {
-      entryFileNames: 'mobile.js',
-    },
   }
 }
 

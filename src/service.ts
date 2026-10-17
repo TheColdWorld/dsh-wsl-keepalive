@@ -177,15 +177,11 @@ export class KeepAliveService {
     return `'${String(s).replace(/'/g, `'\\''`)}'`
   }
 
-  private pathExists(p: string): boolean {
-    return existsSync(p)
-  }
-
   /** Resolve the wsl.exe path: configured value, else the fallback when it exists, else empty. */
   private resolveExec(): string {
     const configured = this.config.wslExecPath.get().trim()
     if (configured) return configured
-    return this.pathExists(this.FALLBACK_WSL_EXE) ? this.FALLBACK_WSL_EXE : ''
+    return existsSync(this.FALLBACK_WSL_EXE) ? this.FALLBACK_WSL_EXE : ''
   }
 
   /**
@@ -198,7 +194,7 @@ export class KeepAliveService {
     const exe = this.resolveExec()
     const env = checkWslEnv({ wslExecPath: exe, fallbackPath: this.FALLBACK_WSL_EXE })
     if (!env.ok) {
-      const detail = env.reason ?? `cannot start keep-alive (${env.detail})`
+      const detail = env.detail
       console.error(`[wsl-keepalive] refused to run: ${detail}`)
       return { failure: { code: env.code, params: env.params ?? undefined, detail } }
     }

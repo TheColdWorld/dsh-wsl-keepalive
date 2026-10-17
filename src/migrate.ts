@@ -13,7 +13,7 @@ import { existsSync, promises as fsp } from 'node:fs'
 import { homedir } from 'node:os'
 
 /** Minimal writer face of the host settings service used by the import. */
-export interface SettingsWriter {
+interface SettingsWriter {
   /**
    * Merge fields into one entry's stored user section.
    * @param ns - profile entry id.
@@ -37,7 +37,7 @@ const FIELD_MAP: Readonly<Record<string, string>> = {
 }
 
 /** Path of the legacy config file, honoring DSH_HOME and HOME. */
-export function legacyConfigPath(): string {
+function legacyConfigPath(): string {
   const dshHome = process.env.DSH_HOME
   if (dshHome) return dshHome + '/' + CONFIG_NAME
   const home = process.env.HOME || homedir()
@@ -45,7 +45,7 @@ export function legacyConfigPath(): string {
 }
 
 /** Read the legacy JSON as new-field values; undefined when absent or unreadable. */
-export async function readLegacyConfig(): Promise<Record<string, string> | undefined> {
+async function readLegacyConfig(): Promise<Record<string, string> | undefined> {
   const path = legacyConfigPath()
   if (!existsSync(path)) return undefined
   try {

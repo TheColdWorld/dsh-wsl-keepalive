@@ -15,7 +15,6 @@ export type KeepAliveKey =
   | 'description'
   | 'configSection'
   | 'commandSection'
-  | 'detecting'
   | 'unavailable'
   | 'enabled'
   | 'disabled'
@@ -56,7 +55,6 @@ export const en: Record<KeepAliveKey, string> = {
   description: 'Keep a WSL dbus session alive from the Web UI.',
   configSection: 'Configuration',
   commandSection: 'Command configuration',
-  detecting: 'Detecting…',
   unavailable: 'Unavailable:',
   enabled: 'Enabled',
   disabled: 'Disabled',
@@ -98,7 +96,6 @@ export const zh: Record<KeepAliveKey, string> = {
   description: '在 Web UI 中保持 WSL 的 dbus 会话存活。',
   configSection: '配置',
   commandSection: '命令配置',
-  detecting: '检测中…',
   unavailable: '不可用：',
   enabled: '已启用',
   disabled: '已停用',

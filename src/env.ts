@@ -28,7 +28,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { release as osRelease } from 'node:os'
 
 /** Stable refusal code; the browser localizes it (src/client/i18n.ts). */
-export type WslEnvCode =
+type WslEnvCode =
   | 'ok'
   | 'envNotWsl'
   | 'containerNoInterop'
@@ -37,28 +37,21 @@ export type WslEnvCode =
   | 'errWslExecMissing'
 
 /** Environment check result. When ok=false, code is always a localizable code. */
-export interface WslEnvResult {
+interface WslEnvResult {
   ok: boolean
   /** Stable localization code (owned by the client dictionary). */
   code: WslEnvCode
-  /** Human-readable failure reason when not usable (also the log line). */
-  reason: string | null
-  /** Short description for logs / debugging. */
+  /** Human-readable failure detail (also the log line). */
   detail: string
-  /**
-   * Kernel release string read during detection. It is one concrete fact the
-   * client can localize a refusal with, so it travels as a template param.
-   */
-  kernel: string
   /** Template params for code. */
   params: Record<string, string> | null
 }
 
 /** How the functional probe of the wsl.exe candidate failed. */
-export type ProbeFailure = 'ENOENT' | 'ENOEXEC' | 'EACCES' | 'TIMEOUT' | 'OTHER'
+type ProbeFailure = 'ENOENT' | 'ENOEXEC' | 'EACCES' | 'TIMEOUT' | 'OTHER'
 
 /** Result of one wsl.exe probe. */
-export type ProbeResult = { ok: true } | { ok: false; failure: ProbeFailure; detail: string }
+type ProbeResult = { ok: true } | { ok: false; failure: ProbeFailure; detail: string }
 
 /**
  * The facts classifyWslEnv needs. checkWslEnv gathers them from the real host;
@@ -91,9 +84,8 @@ function refuse(
   code: WslEnvCode,
   detail: string,
   params: Record<string, string> | null,
-  kernel: string,
 ): WslEnvResult {
-  return { ok: false, code, reason: detail, detail, kernel, params }
+  return { ok: false, code, detail, params }
 }
 
 /**
@@ -103,46 +95,43 @@ function refuse(
  * @returns the classified environment result.
  */
 export function classifyWslEnv(facts: WslFacts): WslEnvResult {
-  const { kernel } = facts
-  const kernelParam = kernel || 'unknown'
+  const kernelParam = facts.kernel || 'unknown'
 
   if (facts.candidateExists) {
     const probe = facts.probe
     if (probe !== null && probe.ok) {
-      return { ok: true, code: 'ok', reason: null, detail: `wsl.exe is executable (${facts.candidate})`, kernel, params: null }
+      return { ok: true, code: 'ok', detail: `wsl.exe is executable (${facts.candidate})`, params: null }
     }
     if (probe !== null && probe.failure === 'ENOENT') {
-      return refuse('errWslExecMissing', `wsl.exe was not found at ${facts.candidate}`, { path: facts.candidate }, kernel)
+      return refuse('errWslExecMissing', `wsl.exe was not found at ${facts.candidate}`, { path: facts.candidate })
     }
     if (facts.interopDisabled) {
       return refuse(
         'interopDisabled',
         `WSL interop is disabled in /etc/wsl.conf ([interop] enabled=false), so ${facts.candidate} cannot run`,
         null,
-        kernel,
       )
     }
     const probeDetail = probe === null ? 'wsl.exe was not probed' : `probe failed (${probe.failure}): ${probe.detail}`
-    return refuse('interopUnavailable', `${facts.candidate}: ${probeDetail}`, { detail: probeDetail }, kernel)
+    return refuse('interopUnavailable', `${facts.candidate}: ${probeDetail}`, { detail: probeDetail })
   }
 
   // No usable wsl.exe candidate: classify with the cheap signals.
   const pathParam = facts.candidate !== '' ? facts.candidate : facts.fallback
   if (facts.interopEvidence) {
-    return refuse('errWslExecMissing', `WSL interop is available but wsl.exe was not found at ${pathParam}`, { path: pathParam }, kernel)
+    return refuse('errWslExecMissing', `WSL interop is available but wsl.exe was not found at ${pathParam}`, { path: pathParam })
   }
   if (facts.interopDisabled) {
-    return refuse('interopDisabled', 'WSL interop is disabled in /etc/wsl.conf ([interop] enabled=false)', null, kernel)
+    return refuse('interopDisabled', 'WSL interop is disabled in /etc/wsl.conf ([interop] enabled=false)', null)
   }
   if (facts.kernelIsWsl || facts.container) {
     return refuse(
       'containerNoInterop',
       `WSL-like kernel (${kernelParam}) but no interop channel; likely a container on a WSL2 host`,
       { kernel: kernelParam },
-      kernel,
     )
   }
-  return refuse('envNotWsl', `not a WSL environment (kernel "${kernelParam}", no interop markers)`, { kernel: kernelParam }, kernel)
+  return refuse('envNotWsl', `not a WSL environment (kernel "${kernelParam}", no interop markers)`, { kernel: kernelParam })
 }
 
 /** True when the path exists and is a Unix socket (follows symlinks). */
@@ -279,7 +268,7 @@ function readKernel(): string {
 }
 
 /** Options for {@link checkWslEnv}. */
-export interface CheckWslEnvOptions {
+interface CheckWslEnvOptions {
   /** Resolved wsl.exe candidate (config value, else the fallback when it exists, else ''). */
   wslExecPath: string
   /** Fallback path used for messages when no candidate was resolved. */
