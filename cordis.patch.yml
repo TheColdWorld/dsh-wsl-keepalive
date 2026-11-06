@@ -1,7 +1,5 @@
-# wsl-keepalive bundle patch: insert this plugin row (both the Host and Client halves
-# are mounted by this single row; the Client half is discovered via package.json's
-# dsh.client declaration).
-# Takes effect after installation via `dsh plugin --profile web add <this package path>`.
+# dsh-wsl-keepalive bundle patch: one row mounts both the Host and Client halves.
+# The Client half is discovered from package.json's dsh.client declaration.
 - insert:
     - id: wsl-keepalive
-      name: 'wsl-keepalive'
+      name: 'dsh-wsl-keepalive'

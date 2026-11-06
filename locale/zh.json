@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "WSL 保活",
-    "description": "在 DeepSeek Harness Web UI 中开关 WSL 保活，避免 WSL 发行版因空闲被自动关闭。"
+    "description": "在侧边栏为多个 WSL 发行版统一开关保活。",
+    "detail": "detail.zh.md"
   }
 }

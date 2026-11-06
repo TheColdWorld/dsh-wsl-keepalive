@@ -1,90 +1,84 @@
 {
-  "name": "wsl-keepalive",
-  "description": "Toggle WSL keep-alive from the DeepSeek Harness Web UI so a WSL distro does not shut down while idle.",
-  "version": "0.2.0",
+  "name": "dsh-wsl-keepalive",
+  "version": "0.3.0",
+  "description": "Multi-distro WSL keep-alive switch for the DeepSeek Harness Web sidebar.",
   "type": "module",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.28.5",
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.1.5-rc.2 <0.3.0-0"
-  },
-  "scripts": {
-    "build": "tsc -b && tsdown",
-    "typecheck": "tsc -b --pretty false",
-    "test": "node --test src/env.test.ts",
-    "prepare": "tsdown"
+    "dsh": ">=0.2.2-rc.1 <0.3.0-0"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
-    },
-    "./client": {
-      "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/client.js"
-    },
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./client": { "types": "./lib/types/client/index.d.ts", "default": "./lib/client.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
-  "files": [
-    "lib/**/*.js",
-    "lib/**/*.js.map",
-    "lib/**/*.d.ts",
-    "lib/**/*.d.ts.map",
-    "locale/*.json",
-    "src",
-    "cordis.patch.yml"
-  ],
-  "license": "MIT",
+  "files": ["lib", "locale", "cordis.patch.yml", "README.md", "README.eng.md", "detail.zh.md", "detail.en.md", "CHANGELOG.md", "LICENSE", "AGENTS.md"],
   "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
+    "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
+      "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-plugin-manager",
-        "@deepseek-ai/dsh-client-locale"
-      ],
-      "platform": "web"
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-client-connection": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-locale": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-store": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-ui-plugin-manager": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.5-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.2 <0.3.0-0"
+  "scripts": {
+    "build": "tsc -b && tsdown",
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --test src/*.test.ts src/client/*.test.ts",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "prepack": "pnpm run build",
+    "prepare": "tsdown"
   },
+  "license": "MIT",
+  "keywords": ["dsh-plugin", "deepseek-harness", "dsh", "wsl", "keepalive", "web-ui"],
+  "repository": { "type": "git", "url": "git+https://github.com/TheColdWorld/dsh-wsl-keepalive.git" },
+  "homepage": "https://github.com/TheColdWorld/dsh-wsl-keepalive",
+  "bugs": { "url": "https://github.com/TheColdWorld/dsh-wsl-keepalive/issues" },
+  "author": { "name": "TheColdWorld", "url": "https://github.com/TheColdWorld" },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.5",
-    "wsl-keepalive": "link:"
+    "@deepseek-ai/schemastery": "^3.19.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-locale": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-store": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.2-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-settings": ">=0.2.2-rc.1 <0.3.0-0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.5",
-    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-locale": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-store": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-settings": "^0.2.1-rc.2",
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-client-connection": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-store": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-sidebar": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-settings": "^0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "^3.19.0",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
-    "lightningcss": "^1.32.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "lightningcss": "^1.33.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3"
   }

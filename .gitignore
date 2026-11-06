@@ -1,15 +1,14 @@
-# --- 依赖 / 构建产物（不纳入版本控制） ---
 node_modules/
 lib/
-
-# --- TypeScript / tsdown 增量缓存 ---
+.dsh-test/
+.test-output/
+.test-bin/
+.npm-cache/
+.pnpm-home/
+.pnpm-cache/
+.pnpm-data/
+.pnpm-store/
+tmp-*.mjs
 *.tsbuildinfo
-.pnpm-tmp
-# --- 编辑器 / 系统 ---
-.vscode/
-.idea/
 *.log
 .DS_Store
-
-# --- 本地临时 ---
-*.tmp

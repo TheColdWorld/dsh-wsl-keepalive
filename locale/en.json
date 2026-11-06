@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "WSL Keep-Alive",
-    "description": "Toggle WSL keep-alive from the DeepSeek Harness Web UI so a WSL distro does not shut down while idle."
+    "description": "Toggle keep-alive for one or more WSL distros from the sidebar.",
+    "detail": "detail.en.md"
   }
 }
