@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isPid } from './keepalive.ts'
+import { isPid } from './core/keepalive.ts'
 
 test('accepts ordinary keep-alive PIDs', () => {
   assert.equal(isPid('2'), true)

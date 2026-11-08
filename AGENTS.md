@@ -7,7 +7,8 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 - dsh-wsl-keepalive is an unofficial DSH Web plugin.
 - One Cordis row mounts a Host half (src/) and a Client half (src/client/).
 - The Client half registers a compact switch in sidebar.footer.action and a configuration page in plugins.row.config.
-- The Host half owns multi-distro process lifecycle and Connection exact Fetch routes.
+- The Host half owns the host-selected keep-alive service, multi-distro process lifecycle, and Connection exact Fetch routes.
+- The platform seam is `src/core/host.ts` + `src/hosts/`. Core modules never read `process.platform`; only a host implementation may.
 
 ## Non-negotiables
 
@@ -18,25 +19,40 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 
        wsl -d <distro> -u root --exec sh -c '<verify marker>; kill <pid>'
 
-   Use the target's own wslExecPath and distro. Never pass an unvalidated PID
-   to kill; the Host also validates PIDs it reads from wsl.exe output.
-4. Each configured distro has its own wslExecPath and user. Never collapse them into one global setting.
-5. An empty distro means the distro that runs this DSH process. Detect it from WSL_DISTRO_NAME, then wsl.exe -l --running --quiet when exactly one distro is running. Never invent a “default distro” label.
-6. Keep the DSH distro alive by default. When `keepDefault` is true, append it
-   as an implicit target if missing; when false, do not append it, and stop a
-   running implicit target on the next status pass. De-duplicate by resolved
-   distro name. This switch is a bool, never an inserted target row.
+   Use the resolved `ResolvedConfig.wslExecPath` and the target distro. Never
+   pass an unvalidated PID to kill; the Host also validates PIDs it reads from
+   wsl.exe output.
+4. `preferredWslExec` is one global setting. Resolve it once per config read to
+   `ResolvedConfig.wslExecPath`; keep that concrete path in memory and never
+   persist it per target. An empty preference means the host default.
+5. On the WSL host, the implicit distro is only `WSL_DISTRO_NAME`. If it is
+   missing, do not fall back to `wsl -l --running --quiet`; drop the implicit
+   target and show `无法识别dsh运行的发行版` under the switch. Never invent a
+   "default distro" label on the WSL host. A future Windows host must use the
+   WSL default distro from `wsl -l -v` and label it as such, not as the DSH distro.
+6. Keep the implicit distro alive by default. When `keepDefault` is true, append
+   it as an implicit target if missing; when false, do not append it, and stop a
+   running implicit target on the next status pass. If the implicit distro is
+   already an explicit target, `keepDefault` is effectively true and the switch
+   is locked. De-duplicate by resolved distro name. This switch is a bool, never
+   an inserted target row.
 7. keepalive.sh is the only external script. Read it back as raw bytes and
    compare character by character in Node (no sha256sum/cut or other extra
    tool); on mismatch force-write the canonical bytes with the shell printf
    builtin, chmod 700, log the repair through ctx.logger, and compare again
    before starting. A content mismatch must also log the tampered file's
    original text (JSON-escaped and bounded). Do not run pgrep to find it.
-8. Environment detection checks the target distro's binfmt_misc first, then /run/WSL interop sockets, then a real wsl.exe probe.
-9. The tooltip has no “保活的发行版：” prefix. Running: distro(pid); failure: distro(启动失败). Multiple targets are separate newline lines.
+8. WSL environment detection lives in `src/hosts/wsl.ts`: check the target
+   distro's binfmt_misc first, then /run/WSL interop sockets, then a real
+   wsl.exe probe.
+9. The tooltip has no "保活的发行版：" prefix. Running: distro(pid); failure: distro(启动失败). Multiple targets are separate newline lines.
 10. The switch starts/stops every target. A partial failure must not prevent the other targets from running; show the failed target in the tooltip.
 11. Do not add .github/ or .editorconfig. This repository deliberately has neither.
 12. Do not run git add/commit/tag/push or publish to npm/GitHub without an explicit request.
+13. A target's distro name is required, trimmed, and unique. `user` is not part
+    of the key. Reject duplicates with `不允许添加相同的发行版`; reject empty
+    names with `发行版不能为空`. Never start a target whose distro name is empty
+    or unresolved.
 
 ## Tooltip contract
 
@@ -44,7 +60,7 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 - One line per target.
 - Running line: distro(pid), or (pid) when the distro name is unknown.
 - Failed line: distro(启动失败) in Chinese, distro(start failed) in English.
-- No prefix and no “default distro”.
+- No prefix and no "default distro".
 
 ## Process lifecycle
 
@@ -54,6 +70,8 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 - Stop uses the root kill command, then waits, then falls back to -KILL, then cleans the PID file.
 - disposeAll() kills the in-distro keep-alive PID (marker-verified root
   SIGKILL) and then every Host-held child when the plugin unloads.
+- `LiveChild` keeps the concrete `wslExecPath` used to start it; `ResolvedTarget`
+  carries only `{name,user,implicit}`.
 
 ## Build and validation
 
@@ -62,23 +80,29 @@ Rules for agent contributors to this repository. Applies to the whole repo.
     pnpm build
     pnpm pack
 
-Run tests with Node 22.19+ or 24+. Never test with the 3080 production instance; use an isolated DSH_HOME and port 3099.
+Run tests with Node 22.19+ or 24+. Never test with the 3080 production instance; use an isolated DSH_HOME and port 3099. The isolated check should mount the linked plugin, authenticate with the printed token cookie, and exercise `/api/wsl-keepalive/status`, `/set`, and `/validate`.
 
 ## File map
 
 | Path | Responsibility |
 | --- | --- |
-| src/index.ts | Host entry, Config schema, optional connection/settings carriers |
-| src/targets.ts | Pure configured + implicit target merging |
-| src/wsl.ts | execFile argument arrays, raw bytes + UTF-16LE decode, timeouts |
-| src/env.ts | binfmt_misc -> socket -> probe detection, 60s cache |
-| src/keepalive.ts | Host-held children, verified script, status, root kill, dispose |
-| src/script.ts | Canonical keepalive.sh bytes and exact byte comparison |
-| src/validate.ts | wslExecPath resolve/stat/--version validation |
-| src/service.ts | Multi-target status/set orchestration |
-| src/routes.ts | /api/wsl-keepalive/status, /set, /validate with body caps |
+| src/index.ts | Host entry, Config schema, legacy normalization, carriers |
+| src/core/host.ts | HostService seam (resolve path, implicit distro, env check, validate) |
+| src/core/types.ts | Config/runtime/status shapes |
+| src/core/targets.ts | Target validation and explicit + implicit merging |
+| src/core/implicit.ts | changeImplicitPlan, keep-alive map, transition rules |
+| src/core/wsl.ts | execFile argument arrays, raw bytes + UTF-16LE decode, cwd options |
+| src/core/keepalive.ts | Host-held children, verified script, status, root kill, dispose |
+| src/core/script.ts | Canonical keepalive.sh bytes and exact byte comparison |
+| src/core/validate.ts | Shared absolute path/stat/--version validation |
+| src/core/migrate.ts | 0.3.0 config normalization |
+| src/core/service.ts | Resolution, uniqueness, status/set orchestration |
+| src/core/routes.ts | /api/wsl-keepalive/status, /set, /validate with body caps |
+| src/hosts/wsl.ts | WSL host: WSL_DISTRO_NAME only, binfmt -> socket -> probe, POSIX paths |
+| src/hosts/unsupported.ts | Fail-closed placeholder for other hosts |
+| src/hosts/index.ts | createHostService(platform) |
 | src/client/index.ts | locale, sidebar.footer.action, plugins.row.config |
 | src/client/KeepAliveSwitch.tsx | Compact switch and tooltip |
-| src/client/ConfigPage.tsx | Target list editor |
+| src/client/ConfigPage.tsx | Target editor, uniqueness, global wsl.exe path |
 | src/client/tooltip.ts | Pure tooltip line builder |
 | tsdown.config.ts | Host ESM + lazy-CJS client build |

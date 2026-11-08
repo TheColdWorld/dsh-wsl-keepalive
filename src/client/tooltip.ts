@@ -25,11 +25,11 @@ export function tooltipLines(
   if (status.errorCode !== null) return [known(status.errorCode) ? t(status.errorCode) : t('errNoTargets')]
   const lines: string[] = []
   for (const target of status.targets) {
-    if (target.running) lines.push((target.distro ?? '') + '(' + (target.pid ?? '?') + ')')
+    if (target.running) lines.push(target.name + '(' + (target.pid ?? '?') + ')')
   }
   for (const target of status.targets) {
     if (!target.running && target.errorCode !== null) {
-      lines.push((target.distro ?? '') + '(' + t('startFailed') + ')')
+      lines.push(target.name + '(' + t('startFailed') + ')')
     }
   }
   return lines

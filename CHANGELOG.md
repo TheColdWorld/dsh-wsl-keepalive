@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0
+
+- Split the host seam (`src/core/host.ts` + `src/hosts/`) from the shared
+  keep-alive core. `src/core/` no longer reads `process.platform`.
+- New config shape: `keepDefault`, `targets: {name,user}[]`, and one global
+  `preferredWslExec`. `wslExecPath` is resolved after reading config and kept
+  in memory in `ResolvedConfig`; `ResolvedTarget` carries only identity.
+- Distro names are required, trimmed, and unique. Duplicate targets are
+  rejected with “不允许添加相同的发行版”; empty names with “发行版不能为空”.
+- On the WSL host the implicit distro comes only from `WSL_DISTRO_NAME`.
+  There is no `wsl -l --running --quiet` fallback; when it is missing the
+  implicit target is dropped and the page shows “无法识别dsh运行的发行版”.
+- If the implicit distro is already an explicit target, `keepDefault` is
+  effectively true and the switch is locked.
+- Add `core/implicit.ts` (`changeImplicitPlan(previous, current)`) and a
+  distro-keyed keep-alive map; reconcile the implicit target when the switch
+  or the implicit distro changes.
+- Normalize 0.3.0 settings on read: rename `distro`/`userName`, take the
+  first per-target path as `preferredWslExec`, drop empty/duplicate targets,
+  and force `keepDefault` on when an empty legacy target is dropped.
+- Add a fail-closed placeholder host for platforms other than Linux.
+
 ## 0.3.0
 
 - Rename the package to `dsh-wsl-keepalive`; require DSH >= 0.2.2-rc.1 < 0.3.0.

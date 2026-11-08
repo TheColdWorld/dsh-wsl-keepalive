@@ -12,9 +12,11 @@ Adds one compact switch below the balance card in the DSH Web sidebar to start o
 ## Features
 
 - One switch manages multiple distros.
-- Each distro can be configured with its own wsl.exe path and start user.
-- Keeps the distro that runs DSH alive by default; turn it off on the configuration page to keep only explicitly added targets.
-- An empty distro still means the distro that runs this DSH process.
+- Each target has its own user; the wsl.exe path is one global `preferredWslExec`, auto-detected when empty.
+- Keeps the implicit distro alive by default. On a WSL host the implicit distro is the one that runs DSH, read only from `WSL_DISTRO_NAME`.
+- When `WSL_DISTRO_NAME` is missing, no implicit target is started and there is no `wsl -l --running` fallback; the page shows “Cannot identify the distro that runs dsh”.
+- Distro names are required and must be unique; duplicates show “The same distro cannot be added twice”.
+- If the implicit distro is already an explicit target, the default keep-alive switch is locked on.
 - While on, the tooltip shows each target:
 
       distro1(1234)
@@ -31,16 +33,16 @@ Adds one compact switch below the balance card in the DSH Web sidebar to start o
 
       wsl -d <distro> -u root --exec kill <pid>
 
-  Each distro uses its own wsl.exe path; before killing, it re-checks that the
-  PID is numeric and that `/proc/<pid>/cmdline` contains the keep-alive
-  marker. If the check fails, no root kill is performed.
+  It uses the resolved wsl.exe path and the target distro; before killing, it
+  re-checks that the PID is numeric and that `/proc/<pid>/cmdline` contains the
+  keep-alive marker. If the check fails, no root kill is performed.
 - keepalive.sh is the only external script. Before each start, Node reads it
   back as raw bytes and compares it character by character. On mismatch it
   overwrites the file with the canonical content, chmods 700, logs the repair,
   and compares again before starting; the log includes the original text of
   the tampered file (JSON-escaped and length-bounded). It does not depend on
   extra tools such as sha256sum/cut.
-- Environment detection checks the target distro's binfmt_misc first, then the /run/WSL interop socket, and finally performs a real wsl.exe probe.
+- WSL environment detection lives in `src/hosts/wsl.ts`: binfmt_misc first, then the /run/WSL interop socket, then a real wsl.exe probe.
 
 ## Requirements
 
@@ -69,17 +71,26 @@ Remove:
 
 ## Configuration
 
-Open this plugin's configuration page under Plugins and edit the target list. Each row has:
+Open this plugin's configuration page under Plugins and edit the target list. Each target has:
 
 | Field | Description |
 | --- | --- |
-| Distro | Leave empty to use the distro that runs this DSH process |
+| Distro | Required, non-empty after trim, and unique |
 | User | User that runs the keep-alive process; leave empty for the distro's default user |
-| wsl.exe path | Leave empty to auto-detect /mnt/c/Windows/System32/wsl.exe |
+| wsl.exe path | Global setting; empty auto-detects the host default, non-empty must resolve to an absolute executable |
 
-The configuration page also has a “Keep the dsh distro alive (<distro name>)” switch, on by default. When it is off and the target list is empty, the main switch starts no keep-alive process.
+The page also has a “Keep the dsh distro alive (<distro name>)” switch, on by default. When it is off and the target list is empty, the main switch starts no keep-alive process. When the implicit distro is already an explicit target, the switch is on and cannot be changed.
 
 Before saving, the path is resolved to an absolute path, checked to exist and be executable, and `wsl.exe --version` is run once; if any step fails, the write is cancelled and the reason is shown. Saving writes the profile's cordis.patch.yml.
+
+### Migration from 0.3.0
+
+0.3.0 stored a per-target `wslExecPath`. When reading old settings the plugin:
+
+- maps `distro` / `userName` to `name` / `user`;
+- takes the first non-empty `wslExecPath` as the global `preferredWslExec`;
+- drops empty-name targets and forces `keepDefault` on;
+- drops duplicate distro names and logs a warning.
 
 ## Development
 

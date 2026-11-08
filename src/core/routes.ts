@@ -1,11 +1,10 @@
 /**
  * Connection exact Fetch routes for the browser half.
- * @module dsh-wsl-keepalive/routes
+ * @module dsh-wsl-keepalive/core/routes
  */
 
 import type { ConnectionFetchRoute } from '@deepseek-ai/dsh-client-connection'
 import type { KeepAliveService } from './service.ts'
-import { validateWslPath } from './validate.ts'
 
 export const API_PREFIX = '/api/wsl-keepalive'
 
@@ -105,11 +104,11 @@ export function makeRoutes(service: KeepAliveService): ConnectionFetchRoute[] {
         if (!read.ok) {
           return json(read.status, { errorCode: read.status === 413 ? 'payloadTooLarge' : 'badRequest' })
         }
-        const body = read.value as { wslExecPath?: unknown }
-        if (body === null || typeof body !== 'object' || typeof body.wslExecPath !== 'string') {
+        const body = read.value as { preferredWslExec?: unknown }
+        if (body === null || typeof body !== 'object' || typeof body.preferredWslExec !== 'string') {
           return json(400, { errorCode: 'badRequest' })
         }
-        return json(200, await validateWslPath(body.wslExecPath))
+        return json(200, await service.validateWslPath(body.preferredWslExec))
       },
     },
   ]

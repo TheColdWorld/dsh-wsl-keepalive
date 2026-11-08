@@ -1,17 +1,29 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { makeRoutes } from './routes.ts'
-import type { KeepAliveService } from './service.ts'
-import type { KeepAliveStatus } from './types.ts'
+import { makeRoutes } from './core/routes.ts'
+import type { KeepAliveService } from './core/service.ts'
+import type { KeepAliveStatus, WslPathValidation } from './core/types.ts'
 
 const status: KeepAliveStatus = {
   enabled: false,
   partial: false,
+  host: 'wsl',
   defaultDistro: null,
+  implicitAvailable: false,
+  implicitReason: 'unidentified-dsh-distro',
+  keepDefaultEffective: false,
+  keepDefaultLocked: false,
   targets: [],
   errorCode: null,
   errorParams: null,
   error: null,
+}
+
+const emptyValidation: WslPathValidation = {
+  ok: true,
+  path: '',
+  errorCode: null,
+  detail: null,
 }
 
 function fakeService(): { service: KeepAliveService; calls: boolean[] } {
@@ -19,6 +31,7 @@ function fakeService(): { service: KeepAliveService; calls: boolean[] } {
   const service = {
     status: async () => status,
     set: async (enabled: boolean) => { calls.push(enabled); return status },
+    validateWslPath: async () => emptyValidation,
   } as unknown as KeepAliveService
   return { service, calls }
 }
@@ -66,8 +79,18 @@ test('/validate reports a normalized empty default without touching wsl.exe', as
   const response = await routeOf(service, '/validate').fetch(new Request('http://localhost/api/wsl-keepalive/validate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ wslExecPath: '   ' }),
+    body: JSON.stringify({ preferredWslExec: '   ' }),
   }))
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { ok: true, path: '', errorCode: null, detail: null })
+})
+
+test('/validate refuses the old wslExecPath field', async () => {
+  const { service } = fakeService()
+  const response = await routeOf(service, '/validate').fetch(new Request('http://localhost/api/wsl-keepalive/validate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ wslExecPath: '/usr/bin/true' }),
+  }))
+  assert.equal(response.status, 400)
 })

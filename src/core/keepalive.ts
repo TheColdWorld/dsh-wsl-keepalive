@@ -1,24 +1,33 @@
 /**
  * Keep-alive process lifecycle inside one distro.
  *
- * WSL tears down background processes when the launching wsl.exe exits, so the
- * Host keeps one foreground wsl.exe child per target. The child runs exactly
- * one external script, whose SHA-256 is verified and repaired before startup.
- * Stopping uses the requested 'wsl -d <distro> -u root --exec kill <pid>',
- * guarded by a PID shape check and a cmdline marker check.
- * @module dsh-wsl-keepalive/keepalive
+ * The host keeps one foreground wsl.exe child per target. The child runs
+ * exactly one external script whose bytes are compared and repaired before
+ * startup. Stopping uses the root kill command, guarded by a PID shape check
+ * and a /proc cmdline marker check.
+ *
+ * This module is platform-neutral: the concrete wsl.exe path and host spawn
+ * options arrive through KeepAliveContext, never through ResolvedTarget.
+ * @module dsh-wsl-keepalive/core/keepalive
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { EnvCheck, ResolvedTarget, TargetStatus } from './types.ts'
-import { distroArgs, runWsl, runWslRaw, userArgs } from './wsl.ts'
+import { decodeOutput, distroArgs, runWsl, runWslRaw, userArgs, type ExecOptions } from './wsl.ts'
 import { KEEPALIVE_MARKER, KEEPALIVE_SCRIPT_BYTES, formatTamperedScript, isCanonicalScript } from './script.ts'
+
+/** Per-call host context: concrete executable path and spawn options. */
+export interface KeepAliveContext {
+  wslExecPath: string
+  execOptions?: ExecOptions
+}
 
 /** A Host-held wsl.exe child plus the Linux PID it reported. */
 interface LiveChild {
   child: ChildProcess
   pid: string
   target: ResolvedTarget
+  ctx: KeepAliveContext
 }
 
 /** Sink for repair events; the Host passes its logger. */
@@ -36,11 +45,11 @@ export function isPid(value: string): boolean {
 }
 
 function keyOf(target: ResolvedTarget): string {
-  return (target.distro ?? '') + '\u0000' + target.wslExecPath + '\u0000' + target.userName
+  return target.name
 }
 
 function display(target: ResolvedTarget): string {
-  return target.distro ?? 'unknown distro'
+  return target.name
 }
 
 /**
@@ -128,7 +137,7 @@ function field(stdout: string, key: string): string | null {
 }
 
 function failure(target: ResolvedTarget, code: string, detail: string, params: Record<string, string> | null = null): TargetStatus {
-  return { distro: target.distro, pid: null, running: false, errorCode: code, errorParams: params, error: detail }
+  return { name: target.name, pid: null, running: false, errorCode: code, errorParams: params, error: detail }
 }
 
 interface ScriptState {
@@ -138,22 +147,23 @@ interface ScriptState {
   error: string | null
 }
 
-async function readScript(target: ResolvedTarget): Promise<ScriptState> {
+async function readScript(target: ResolvedTarget, ctx: KeepAliveContext): Promise<ScriptState> {
   const result = await runWslRaw(
-    target.wslExecPath,
-    [...userArgs(target.distro, target.userName), '--exec', 'sh', '-c', READ_SCRIPT],
+    ctx.wslExecPath,
+    [...userArgs(target.name, target.user), '--exec', 'sh', '-c', READ_SCRIPT],
     15000,
+    ctx.execOptions,
   )
   if (result.error !== null) {
     return { present: false, executable: false, content: Buffer.alloc(0), error: result.error }
   }
   if (result.code !== 0) {
-    const detail = result.stderr.toString('utf8').trim()
-      || result.stdout.toString('utf8').trim()
+    const detail = decodeOutput(result.stderr).trim()
+      || decodeOutput(result.stdout).trim()
       || 'reading keepalive.sh failed'
     return { present: false, executable: false, content: Buffer.alloc(0), error: detail }
   }
-  const meta = result.stderr.toString('utf8')
+  const meta = decodeOutput(result.stderr)
   return {
     present: field(meta, 'STATE') === 'present',
     executable: field(meta, 'MODE') === 'exec',
@@ -167,8 +177,8 @@ async function readScript(target: ResolvedTarget): Promise<ScriptState> {
  * missing, altered, or not executable. Verification is a direct byte-for-byte
  * comparison in Node; the target needs no checksum utility.
  */
-async function ensureScript(target: ResolvedTarget, report: KeepAliveReporter): Promise<string | null> {
-  const current = await readScript(target)
+async function ensureScript(target: ResolvedTarget, ctx: KeepAliveContext, report: KeepAliveReporter): Promise<string | null> {
+  const current = await readScript(target, ctx)
   if (current.error !== null) return current.error
   if (current.present && current.executable && isCanonicalScript(current.content)) return null
   if (current.present && !isCanonicalScript(current.content)) {
@@ -178,18 +188,19 @@ async function ensureScript(target: ResolvedTarget, report: KeepAliveReporter): 
 
   const reason = !current.present ? 'missing' : !current.executable ? 'not executable' : 'content mismatch'
   const write = await runWslRaw(
-    target.wslExecPath,
-    [...userArgs(target.distro, target.userName), '--exec', 'sh', '-c', WRITE_SCRIPT, 'sh', KEEPALIVE_SCRIPT_BYTES],
+    ctx.wslExecPath,
+    [...userArgs(target.name, target.user), '--exec', 'sh', '-c', WRITE_SCRIPT, 'sh', KEEPALIVE_SCRIPT_BYTES],
     15000,
+    ctx.execOptions,
   )
   if (write.error !== null) return write.error
   if (write.code !== 0) {
-    return write.stderr.toString('utf8').trim()
-      || write.stdout.toString('utf8').trim()
+    return decodeOutput(write.stderr).trim()
+      || decodeOutput(write.stdout).trim()
       || 'writing keepalive.sh failed'
   }
 
-  const verify = await readScript(target)
+  const verify = await readScript(target, ctx)
   if (verify.error !== null) return verify.error
   if (!verify.present || !verify.executable || !isCanonicalScript(verify.content)) {
     report.warn('wsl-keepalive: keepalive.sh verification failed for ' + display(target) + ' after rewrite')
@@ -202,8 +213,8 @@ async function ensureScript(target: ResolvedTarget, report: KeepAliveReporter): 
 
 function waitForPid(child: ChildProcess, timeoutMs: number): Promise<string | null> {
   return new Promise((resolve) => {
-    let buffer = ''
-    let stderr = ''
+    let buffer = Buffer.alloc(0)
+    let stderr = Buffer.alloc(0)
     let settled = false
     const finish = (pid: string | null): void => {
       if (settled) return
@@ -213,28 +224,31 @@ function waitForPid(child: ChildProcess, timeoutMs: number): Promise<string | nu
     }
     const timer = setTimeout(() => finish(null), timeoutMs)
     child.stdout?.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString('utf8')
-      const pid = field(buffer, 'PID')
+      buffer = Buffer.concat([buffer, chunk])
+      const pid = field(decodeOutput(buffer), 'PID')
       if (pid !== null) finish(pid)
     })
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
+    child.stderr?.on('data', (chunk: Buffer) => { stderr = Buffer.concat([stderr, chunk]) })
     child.on('error', () => finish(null))
-    child.on('exit', () => finish(field(buffer, 'PID')))
-    ;(child as ChildProcess & { stderrText?: () => string }).stderrText = () => stderr
+    child.on('exit', () => finish(field(decodeOutput(buffer), 'PID')))
+    ;(child as ChildProcess & { stderrText?: () => string }).stderrText = () => decodeOutput(stderr)
   })
 }
 
-async function runStatusScript(target: ResolvedTarget): Promise<TargetStatus> {
+async function runStatusScript(target: ResolvedTarget, ctx: KeepAliveContext): Promise<TargetStatus> {
   const result = await runWsl(
-    target.wslExecPath,
-    [...userArgs(target.distro, target.userName), '--exec', 'sh', '-c', STATUS_SCRIPT],
+    ctx.wslExecPath,
+    [...userArgs(target.name, target.user), '--exec', 'sh', '-c', STATUS_SCRIPT],
     15000,
+    ctx.execOptions,
   )
   if (result.error !== null) return failure(target, 'errCommandFailed', result.error, { detail: result.error })
-  if (result.code !== 0) return failure(target, 'errCommandFailed', result.stderr.trim() || 'status failed')
+  if (result.code !== 0) {
+    return failure(target, 'errCommandFailed', result.stdout.trim() || result.stderr.trim() || 'status failed')
+  }
   const pid = field(result.stdout, 'RUNNING')
   return {
-    distro: target.distro,
+    name: target.name,
     pid,
     running: pid !== null,
     errorCode: null,
@@ -244,79 +258,89 @@ async function runStatusScript(target: ResolvedTarget): Promise<TargetStatus> {
 }
 
 /** Query one target, preferring the Host-held child. */
-export async function statusTarget(target: ResolvedTarget): Promise<TargetStatus> {
+export async function statusTarget(target: ResolvedTarget, ctx: KeepAliveContext): Promise<TargetStatus> {
   const entry = live.get(keyOf(target))
   if (entry !== undefined && entry.child.exitCode === null && !entry.child.killed) {
-    return { distro: target.distro, pid: entry.pid, running: true, errorCode: null, errorParams: null, error: null }
+    return { name: target.name, pid: entry.pid, running: true, errorCode: null, errorParams: null, error: null }
   }
   if (entry !== undefined) live.delete(keyOf(target))
-  return runStatusScript(target)
+  return runStatusScript(target, ctx)
 }
 
 /**
  * Start one target in a Host-held foreground wsl.exe child.
- * @param target - resolved distro/user/wsl.exe path.
+ * @param target - resolved target identity.
+ * @param ctx - concrete wsl.exe path and host spawn options.
  * @param report - sink for a verified script repair.
  */
-export async function startTarget(target: ResolvedTarget, report: KeepAliveReporter = silentReporter): Promise<TargetStatus> {
-  const before = await statusTarget(target)
+export async function startTarget(
+  target: ResolvedTarget,
+  ctx: KeepAliveContext,
+  report: KeepAliveReporter = silentReporter,
+): Promise<TargetStatus> {
+  const before = await statusTarget(target, ctx)
   if (before.running) return before
-  const scriptError = await ensureScript(target, report)
+  const scriptError = await ensureScript(target, ctx, report)
   if (scriptError !== null) return failure(target, 'errStartFailed', scriptError, { detail: scriptError })
 
-  const args = [...userArgs(target.distro, target.userName), '--exec', 'sh', '-c', START_SCRIPT]
-  const child = spawn(target.wslExecPath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  const args = [...userArgs(target.name, target.user), '--exec', 'sh', '-c', START_SCRIPT]
+  const child = spawn(ctx.wslExecPath, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    ...(ctx.execOptions?.cwd === undefined ? {} : { cwd: ctx.execOptions.cwd }),
+  })
   const pid = await waitForPid(child, 10000)
   if (pid === null || !isPid(pid)) {
     const detail = (child as ChildProcess & { stderrText?: () => string }).stderrText?.() ?? 'wsl.exe did not report a valid PID'
     child.kill('SIGKILL')
     return failure(target, 'errStartFailed', detail, { detail })
   }
-  live.set(keyOf(target), { child, pid, target })
+  live.set(keyOf(target), { child, pid, target, ctx })
   child.on('exit', () => {
     const current = live.get(keyOf(target))
     if (current?.child === child) live.delete(keyOf(target))
   })
-  return { distro: target.distro, pid, running: true, errorCode: null, errorParams: null, error: null }
+  return { name: target.name, pid, running: true, errorCode: null, errorParams: null, error: null }
 }
 
-async function killPid(target: ResolvedTarget, pid: string, signal: 'TERM' | 'KILL'): Promise<void> {
+async function killPid(target: ResolvedTarget, ctx: KeepAliveContext, pid: string, signal: 'TERM' | 'KILL'): Promise<void> {
   if (!isPid(pid)) throw new Error('refusing to kill invalid pid ' + JSON.stringify(pid))
   const result = await runWsl(
-    target.wslExecPath,
-    [...distroArgs(target.distro), '-u', 'root', '--exec', 'sh', '-c', KILL_SCRIPT, 'sh', pid, signal, KEEPALIVE_MARKER],
+    ctx.wslExecPath,
+    [...distroArgs(target.name), '-u', 'root', '--exec', 'sh', '-c', KILL_SCRIPT, 'sh', pid, signal, KEEPALIVE_MARKER],
     10000,
+    ctx.execOptions,
   )
   if (result.error !== null) throw new Error(result.error)
   if (result.code === 0 || result.code === 4 || result.code === 5) return
-  throw new Error(result.stderr.trim() || result.stdout.trim() || 'kill exited with ' + String(result.code))
+  throw new Error(result.stdout.trim() || result.stderr.trim() || 'kill exited with ' + String(result.code))
 }
 
 /** Stop one target with the root wsl.exe kill command. */
-export async function stopTarget(target: ResolvedTarget): Promise<TargetStatus> {
-  const before = await statusTarget(target)
+export async function stopTarget(target: ResolvedTarget, ctx: KeepAliveContext): Promise<TargetStatus> {
+  const before = await statusTarget(target, ctx)
   if (!before.running || before.pid === null) return before
   let failureDetail: string | null = null
   try {
-    await killPid(target, before.pid, 'TERM')
+    await killPid(target, ctx, before.pid, 'TERM')
   } catch (error) {
     failureDetail = String((error as Error | undefined)?.message ?? error)
   }
   let after = before
   for (let i = 0; i < 10; i++) {
     await new Promise((resolve) => setTimeout(resolve, 200))
-    after = await statusTarget(target)
+    after = await statusTarget(target, ctx)
     if (!after.running) break
   }
   if (after.running && after.pid !== null) {
     try {
-      await killPid(target, after.pid, 'KILL')
+      await killPid(target, ctx, after.pid, 'KILL')
     } catch (error) {
       failureDetail = String((error as Error | undefined)?.message ?? error)
     }
     for (let i = 0; i < 5; i++) {
       await new Promise((resolve) => setTimeout(resolve, 200))
-      after = await statusTarget(target)
+      after = await statusTarget(target, ctx)
       if (!after.running) break
     }
   }
@@ -326,9 +350,10 @@ export async function stopTarget(target: ResolvedTarget): Promise<TargetStatus> 
     live.delete(keyOf(target))
   }
   await runWsl(
-    target.wslExecPath,
-    [...userArgs(target.distro, target.userName), '--exec', 'sh', '-c', CLEANUP_SCRIPT],
+    ctx.wslExecPath,
+    [...userArgs(target.name, target.user), '--exec', 'sh', '-c', CLEANUP_SCRIPT],
     10000,
+    ctx.execOptions,
   )
   if (after.running && failureDetail !== null) {
     return { ...after, errorCode: 'errCommandFailed', errorParams: { detail: failureDetail }, error: failureDetail }
@@ -344,9 +369,9 @@ export async function stopTarget(target: ResolvedTarget): Promise<TargetStatus> 
 export async function disposeAll(): Promise<void> {
   const entries = Array.from(live.values())
   live.clear()
-  await Promise.all(entries.map(async ({ child, pid, target }) => {
+  await Promise.all(entries.map(async ({ child, pid, target, ctx }) => {
     try {
-      if (isPid(pid)) await killPid(target, pid, 'KILL')
+      if (isPid(pid)) await killPid(target, ctx, pid, 'KILL')
     } catch {
       // Fall through to the Host child SIGKILL below.
     }
@@ -357,7 +382,7 @@ export async function disposeAll(): Promise<void> {
 /** Whether an environment check permits touching this target. */
 export function denied(target: ResolvedTarget, env: EnvCheck): TargetStatus {
   return {
-    distro: target.distro,
+    name: target.name,
     pid: null,
     running: false,
     errorCode: env.code,

@@ -1,11 +1,15 @@
 /**
  * wsl.exe execution: argument arrays only, UTF-16LE decoding, bounded output.
- * @module dsh-wsl-keepalive/wsl
+ * Platform-neutral: callers supply the concrete executable path.
+ * @module dsh-wsl-keepalive/core/wsl
  */
 
 import { execFile } from 'node:child_process'
 
-export const DEFAULT_WSL_EXE = '/mnt/c/Windows/System32/wsl.exe'
+export interface ExecOptions {
+  /** Working directory for the wsl.exe process itself. */
+  cwd?: string
+}
 
 export interface WslResult {
   code: number | null
@@ -22,7 +26,13 @@ export interface WslRawResult {
   error: string | null
 }
 
-function decodeOutput(buf: Buffer | null | undefined): string {
+/**
+ * Decode wsl.exe output. Its own messages are UTF-16LE when redirected; an
+ * --exec child's output is passed through as raw bytes (normally UTF-8).
+ * @param buf - raw stdout or stderr bytes.
+ * @returns decoded text.
+ */
+export function decodeOutput(buf: Buffer | null | undefined): string {
   if (buf === null || buf === undefined || buf.length === 0) return ''
   if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xfe) return buf.toString('utf16le', 2)
   const sample = Math.min(buf.length, 128)
@@ -32,12 +42,22 @@ function decodeOutput(buf: Buffer | null | undefined): string {
   return buf.toString('utf8')
 }
 
-function execute(execPath: string, args: string[], timeoutMs: number): Promise<WslRawResult> {
+function execute(
+  execPath: string,
+  args: string[],
+  timeoutMs: number,
+  options: ExecOptions,
+): Promise<WslRawResult> {
   return new Promise((resolve) => {
     execFile(
       execPath,
       args,
-      { timeout: timeoutMs, maxBuffer: 64 * 1024, encoding: 'buffer' },
+      {
+        timeout: timeoutMs,
+        maxBuffer: 64 * 1024,
+        encoding: 'buffer',
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      },
       (error, stdout, stderr) => {
         const out = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout ?? '')
         const err = Buffer.isBuffer(stderr) ? stderr : Buffer.from(stderr ?? '')
@@ -60,12 +80,22 @@ function execute(execPath: string, args: string[], timeoutMs: number): Promise<W
 }
 
 /** Run wsl.exe and keep stdout/stderr as exact bytes. */
-export function runWslRaw(execPath: string, args: string[], timeoutMs = 20000): Promise<WslRawResult> {
-  return execute(execPath, args, timeoutMs)
+export function runWslRaw(
+  execPath: string,
+  args: string[],
+  timeoutMs = 20000,
+  options: ExecOptions = {},
+): Promise<WslRawResult> {
+  return execute(execPath, args, timeoutMs, options)
 }
 
-export async function runWsl(execPath: string, args: string[], timeoutMs = 20000): Promise<WslResult> {
-  const raw = await execute(execPath, args, timeoutMs)
+export async function runWsl(
+  execPath: string,
+  args: string[],
+  timeoutMs = 20000,
+  options: ExecOptions = {},
+): Promise<WslResult> {
+  const raw = await execute(execPath, args, timeoutMs, options)
   return {
     code: raw.code,
     stdout: decodeOutput(raw.stdout),

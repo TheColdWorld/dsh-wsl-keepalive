@@ -4,7 +4,7 @@
  */
 
 export interface TargetStatus {
-  distro: string | null
+  name: string
   pid: string | null
   running: boolean
   errorCode: string | null
@@ -12,10 +12,22 @@ export interface TargetStatus {
   error: string | null
 }
 
+export type HostKind = 'wsl' | 'win32' | 'unsupported'
+
+export type ImplicitReason =
+  | 'ok'
+  | 'unidentified-dsh-distro'
+  | 'no-default-distro'
+
 export interface KeepAliveStatus {
   enabled: boolean
   partial: boolean
+  host: HostKind
   defaultDistro: string | null
+  implicitAvailable: boolean
+  implicitReason: ImplicitReason | null
+  keepDefaultEffective: boolean
+  keepDefaultLocked: boolean
   targets: TargetStatus[]
   errorCode: string | null
   errorParams: Record<string, string> | null
@@ -73,11 +85,11 @@ export function setEnabled(enabled: boolean): Promise<KeepAliveStatus> {
   })
 }
 
-/** Resolve and probe a candidate wsl.exe path before the form writes it. */
-export function validateWslPath(wslExecPath: string): Promise<WslPathValidation> {
+/** Resolve and probe a candidate preferredWslExec before the form writes it. */
+export function validateWslPath(preferredWslExec: string): Promise<WslPathValidation> {
   return request<WslPathValidation>('/api/wsl-keepalive/validate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ wslExecPath }),
+    body: JSON.stringify({ preferredWslExec }),
   })
 }

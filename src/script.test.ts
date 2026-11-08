@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { KEEPALIVE_SCRIPT, KEEPALIVE_SCRIPT_BYTES, KEEPALIVE_MARKER, MAX_LOGGED_SCRIPT_CHARS, formatTamperedScript, isCanonicalScript } from './script.ts'
+import { KEEPALIVE_SCRIPT, KEEPALIVE_SCRIPT_BYTES, KEEPALIVE_MARKER, MAX_LOGGED_SCRIPT_CHARS, formatTamperedScript, isCanonicalScript } from './core/script.ts'
 
 test('canonical bytes are exactly the script plus one newline', () => {
   assert.equal(KEEPALIVE_SCRIPT_BYTES, KEEPALIVE_SCRIPT + '\n')

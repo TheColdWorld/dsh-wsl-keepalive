@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { distroArgs, userArgs } from './wsl.ts'
+import { distroArgs, userArgs } from './core/wsl.ts'
 
 test('omits -d when the distro is unknown', () => {
   assert.deepEqual(distroArgs(null), [])
