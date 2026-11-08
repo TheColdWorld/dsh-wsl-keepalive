@@ -1,6 +1,6 @@
 {
   "name": "dsh-wsl-keepalive",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Multi-distro WSL keep-alive switch for the DeepSeek Harness Web sidebar.",
   "type": "module",
   "packageManager": "pnpm@11.28.5",

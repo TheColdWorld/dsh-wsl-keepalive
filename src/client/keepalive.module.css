@@ -167,6 +167,10 @@
   color: var(--dsw-alias-label-secondary, #8a8a8a);
 }
 
+.defaultHintError {
+  color: var(--dsw-alias-state-error-primary, #d93025);
+}
+
 .switchButton {
   display: flex;
   flex: none;

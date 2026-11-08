@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2
+
+- On the WSL host, when `WSL_DISTRO_NAME` is missing (for example, DSH
+  started by systemd), probe `wslpath -w /` as the second source. The UNC
+  share name in `\\wsl.localhost\<name>\` or the legacy
+  `\\wsl$\<name>\` is the registered distro name; the result is cached for
+  60 seconds. No running-distro enumeration is used.
+- Show the default keep-alive switch off when the implicit distro cannot be
+  identified, instead of rendering the stored `keepDefault: true` as on.
+- Render the unidentified-distro hint in the error color.
+
 ## 0.3.1
 
 - Add the Windows host implementation (`src/hosts/windows.ts`). DSH can run as

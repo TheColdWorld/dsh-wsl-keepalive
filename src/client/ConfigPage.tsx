@@ -111,7 +111,9 @@ export function ConfigPage(props: ConfigPageProps): React.ReactElement {
   const host = status?.host ?? 'wsl'
   const locked = status?.keepDefaultLocked ?? false
   const implicitAvailable = status?.implicitAvailable ?? true
-  const keepDefaultChecked = locked ? true : keepDefault
+  // An unidentified implicit distro has nothing to keep alive: keep the stored
+  // preference but render the disabled switch as off instead of a green "on".
+  const keepDefaultChecked = locked || (supportsKeepDefault && implicitAvailable && keepDefault)
   const duplicate = hasDuplicate(rows)
 
   const keepDefaultText = host === 'win32'
@@ -189,7 +191,9 @@ export function ConfigPage(props: ConfigPageProps): React.ReactElement {
       <div className={css.defaultSwitch}>
         <div className={css.defaultText}>
           <span className={css.defaultTitle}>{keepDefaultText}</span>
-          <span className={css.defaultHint}>{keepDefaultHint}</span>
+          <span className={implicitAvailable ? css.defaultHint : css.defaultHint + ' ' + css.defaultHintError}>
+            {keepDefaultHint}
+          </span>
           {!supportsKeepDefault && <span className={css.note}>{t('keepDefaultUnavailable')}</span>}
         </div>
         <button

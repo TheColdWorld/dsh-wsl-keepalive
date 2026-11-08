@@ -13,8 +13,8 @@ Adds one compact switch below the balance card in the DSH Web sidebar to start o
 
 - One switch manages multiple distros.
 - Each target has its own user; the wsl.exe path is one global `preferredWslExec`, auto-detected when empty.
-- Keeps the implicit distro alive by default. On a WSL host the implicit distro is the one that runs DSH, read only from `WSL_DISTRO_NAME`. On a Windows host it is the WSL default distro, read only from the `*` row of `wsl -l -v`.
-- When `WSL_DISTRO_NAME` is missing, no implicit target is started and there is no `wsl -l --running` fallback; the page shows “Cannot identify the distro that runs dsh”. On Windows, a missing default distro shows “Cannot identify the WSL default distro”.
+- Keeps the implicit distro alive by default. On a WSL host the implicit distro is the one that runs DSH: read `WSL_DISTRO_NAME` first and, when it is missing, use the UNC share name of `wslpath -w /` (`\\wsl.localhost\<name>\` or `\\wsl$\<name>\`) as the second probe. On a Windows host it is the WSL default distro, read only from the `*` row of `wsl -l -v`.
+- When both WSL probes fail, no implicit target is started and there is no `wsl -l --running` fallback; the page shows “Cannot identify the distro that runs dsh” and the switch is shown off. On Windows, a missing default distro shows “Cannot identify the WSL default distro”.
 - Distro names are required and must be unique; duplicates show “The same distro cannot be added twice”.
 - If the implicit distro is already an explicit target, the default keep-alive switch is locked on.
 - While on, the tooltip shows each target:
@@ -79,7 +79,7 @@ Open this plugin's configuration page under Plugins and edit the target list. Ea
 | User | User that runs the keep-alive process; leave empty for the distro's default user |
 | wsl.exe path | Global setting; empty auto-detects the host default (WSL: `/mnt/c/Windows/System32/wsl.exe`; Windows: `%SystemRoot%\System32\wsl.exe`), non-empty must resolve to an absolute executable |
 
-The page also has a default keep-alive switch, on by default: the WSL host labels it “Keep the dsh distro alive (<distro name>)”, the Windows host labels it “Keep the default distro alive (<distro name>)”. When it is off and the target list is empty, the main switch starts no keep-alive process. When the implicit distro is already an explicit target, the switch is on and cannot be changed.
+The page also has a default keep-alive switch, on by default: the WSL host labels it “Keep the dsh distro alive (<distro name>)”, the Windows host labels it “Keep the default distro alive (<distro name>)”. When it is off and the target list is empty, the main switch starts no keep-alive process. When the implicit distro is already an explicit target, the switch is on and cannot be changed. When the implicit distro cannot be identified, the switch is shown off (and disabled) and the hint uses the error color.
 
 Before saving, the path is resolved to an absolute path, checked to exist and be executable, and `wsl.exe --version` is run once; if any step fails, the write is cancelled and the reason is shown. Saving writes the profile's cordis.patch.yml.
 
