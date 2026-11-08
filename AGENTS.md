@@ -48,12 +48,19 @@ Rules for agent contributors to this repository. Applies to the whole repo.
    wsl.exe probe.
 9. The tooltip has no "保活的发行版：" prefix. Running: distro(pid); failure: distro(启动失败). Multiple targets are separate newline lines.
 10. The switch starts/stops every target. A partial failure must not prevent the other targets from running; show the failed target in the tooltip.
-11. Do not add .github/ or .editorconfig. This repository deliberately has neither.
+11. Do not add .editorconfig. `.github/` is limited to `workflows/`
+    (`publish.yml`); do not add issue/PR templates, custom actions, CODEOWNERS,
+    dependabot config, or any other .github content.
 12. Do not run git add/commit/tag/push or publish to npm/GitHub without an explicit request.
 13. A target's distro name is required, trimmed, and unique. `user` is not part
     of the key. Reject duplicates with `不允许添加相同的发行版`; reject empty
     names with `发行版不能为空`. Never start a target whose distro name is empty
     or unresolved.
+14. Before every commit, compare the pnpm version pinned in
+    `.github/workflows/publish.yml` (`pnpm/action-setup` `version:`) with
+    `packageManager` in `package.json`. If they differ, replace the workflow
+    value with the `package.json` version; the manifest is the only source of
+    truth.
 
 ## Tooltip contract
 

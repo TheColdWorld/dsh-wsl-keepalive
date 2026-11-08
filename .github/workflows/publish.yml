@@ -1,0 +1,107 @@
+name: Publish
+
+# Trusted publisher (OIDC) + staged publishing. This workflow never writes to
+# the registry: it stages the tarball with 'npm stage publish', and a maintainer
+# reviews and releases it with 2FA via 'npm stage approve <stage-id>' or the
+# "Staged Packages" tab on npmjs.com.
+#
+# One-time setup on npmjs.com (package -> Settings -> Trusted publishing):
+#   Organization or user : TheColdWorld
+#   Repository           : dsh-wsl-keepalive
+#   Workflow filename    : publish.yml
+#   Environment name     : npm-publish
+#   Allowed actions      : npm stage publish only (leave 'npm publish' unchecked)
+# A new trusted publisher expires unless its first stage succeeds within 2 days.
+#
+# No NPM_TOKEN / NODE_AUTH_TOKEN is used anywhere: the npm CLI detects the OIDC
+# environment and exchanges the GitHub-issued token for a short-lived credential.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # required for the OIDC token exchange with npm
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest # trusted publishing needs a GitHub-hosted runner
+    environment: npm-publish
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.28.5' # must equal packageManager in package.json
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false # never cache a release build
+
+      - name: Use the newest npm CLI
+        run: |
+          npm install -g npm@latest
+          npm --version
+          # Staged publishing needs npm >= 11.15.0; fail loudly instead of at publish time.
+          node -e 'const [a,b]=require("child_process").execSync("npm --version").toString().trim().split(".").map(Number); if (a<11||(a===11&&b<15)) { console.error("npm too old for staged publishing"); process.exit(1) }'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Release gate
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Release semantic gate
+        env:
+          PKG: dsh-wsl-keepalive
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          [ "${GITHUB_REF_NAME}" = "v${VERSION}" ] || {
+            echo "::error::tag ${GITHUB_REF_NAME} does not match v${VERSION}"; exit 1;
+          }
+          case "$VERSION" in
+            *-*) NPM_TAG=next ;;
+            *)   NPM_TAG=latest ;;
+          esac
+          if [ "$NPM_TAG" = latest ]; then
+            CURRENT="$(npm view "$PKG" dist-tags.latest)"
+            node -e '
+              const [next, cur] = process.argv.slice(1);
+              const p = (v) => v.split("-")[0].split(".").map(Number);
+              const a = p(next), b = p(cur);
+              for (let i = 0; i < 3; i++) if (a[i] !== b[i]) process.exit(a[i] < b[i] ? 1 : 0);
+              process.exit(0);
+            ' "$VERSION" "$CURRENT" || {
+              echo "::error::refusing to move latest backwards ($CURRENT -> $VERSION)"; exit 1;
+            }
+          fi
+          echo "NPM_TAG=$NPM_TAG" >> "$GITHUB_ENV"
+
+      - name: Stage for approval
+        run: npm stage publish --tag "$NPM_TAG"
+
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "### Staged ${GITHUB_REF_NAME}"
+            echo
+            echo "Review and release it (maintainer 2FA required):"
+            echo
+            echo '```sh'
+            echo "npm stage list"
+            echo "npm stage view <stage-id>"
+            echo "npm stage approve <stage-id>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
