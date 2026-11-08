@@ -7,7 +7,7 @@
 import type { EnvCheck, ResolvedTarget, WslPathValidation } from '../core/types.ts'
 import type { HostService, ResolvedWslExec } from '../core/host.ts'
 
-const DETAIL = 'dsh-wsl-keepalive supports WSL hosts only in this build.'
+const DETAIL = 'dsh-wsl-keepalive supports WSL and Windows hosts in this build.'
 
 export class UnsupportedHostService implements HostService {
   readonly kind = 'unsupported' as const

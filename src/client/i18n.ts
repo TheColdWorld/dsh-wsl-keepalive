@@ -41,6 +41,7 @@ export type KeepAliveKey =
   | 'errWslExecMissing'
   | 'errPathInvalid'
   | 'errWslVersionFailed'
+  | 'errDistroMissing'
   | 'pathCheckFailed'
   | 'interopDisabled'
   | 'interopUnavailable'
@@ -92,6 +93,7 @@ export const en: Record<KeepAliveKey, string> = {
   errWslExecMissing: 'wsl.exe was not found.',
   errPathInvalid: 'The wsl.exe path is not a usable executable file.',
   errWslVersionFailed: 'wsl.exe --version failed.',
+  errDistroMissing: 'The selected WSL distro does not exist.',
   pathCheckFailed: 'The wsl.exe path was rejected.',
   interopDisabled: 'WSL interop is disabled in this distro.',
   interopUnavailable: 'WSL interop is unavailable in this distro.',
@@ -144,6 +146,7 @@ export const zh: Record<KeepAliveKey, string> = {
   errWslExecMissing: '未找到 wsl.exe。',
   errPathInvalid: 'wsl.exe 路径不是可执行文件。',
   errWslVersionFailed: 'wsl.exe --version 执行失败。',
+  errDistroMissing: '指定的 WSL 发行版不存在。',
   pathCheckFailed: 'wsl.exe 路径未通过校验。',
   interopDisabled: '该发行版禁用了 WSL interop。',
   interopUnavailable: '该发行版的 WSL interop 不可用。',

@@ -28,8 +28,9 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 5. On the WSL host, the implicit distro is only `WSL_DISTRO_NAME`. If it is
    missing, do not fall back to `wsl -l --running --quiet`; drop the implicit
    target and show `无法识别dsh运行的发行版` under the switch. Never invent a
-   "default distro" label on the WSL host. A future Windows host must use the
-   WSL default distro from `wsl -l -v` and label it as such, not as the DSH distro.
+   "default distro" label on the WSL host. On the Windows host, the implicit
+   distro is only the WSL default distro from the `*` row of `wsl -l -v`;
+   label it as the default distro, never as the DSH distro.
 6. Keep the implicit distro alive by default. When `keepDefault` is true, append
    it as an implicit target if missing; when false, do not append it, and stop a
    running implicit target on the next status pass. If the implicit distro is
@@ -99,6 +100,7 @@ Run tests with Node 22.19+ or 24+. Never test with the 3080 production instance;
 | src/core/service.ts | Resolution, uniqueness, status/set orchestration |
 | src/core/routes.ts | /api/wsl-keepalive/status, /set, /validate with body caps |
 | src/hosts/wsl.ts | WSL host: WSL_DISTRO_NAME only, binfmt -> socket -> probe, POSIX paths |
+| src/hosts/windows.ts | Windows host: '*' default distro, Windows paths, SystemRoot cwd |
 | src/hosts/unsupported.ts | Fail-closed placeholder for other hosts |
 | src/hosts/index.ts | createHostService(platform) |
 | src/client/index.ts | locale, sidebar.footer.action, plugins.row.config |

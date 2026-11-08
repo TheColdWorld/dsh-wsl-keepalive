@@ -1,7 +1,19 @@
 # Changelog
 
-## 0.4.0
+## 0.3.1
 
+- Add the Windows host implementation (`src/hosts/windows.ts`). DSH can run as
+  a native Windows Node process and drive wsl.exe.
+- The Windows implicit target is the WSL default distro from the `*` row of
+  `wsl -l -v`; there is no WSL_DISTRO_NAME on this host.
+- Windows environment checks list distros with `wsl -l -q` before probing the
+  target, so a missing distro reports `errDistroMissing` instead of parsing
+  localized error text.
+- Windows path validation uses `path.win32`; the default wsl.exe path is
+  `%SystemRoot%\System32\wsl.exe`, and wsl.exe runs with SystemRoot as cwd.
+- path validation falls back to `wsl -l -q` when `--version` is unavailable on
+  older inbox WSL.
+- Document the Windows default-distro label and hints.
 - Split the host seam (`src/core/host.ts` + `src/hosts/`) from the shared
   keep-alive core. `src/core/` no longer reads `process.platform`.
 - New config shape: `keepDefault`, `targets: {name,user}[]`, and one global
