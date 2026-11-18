@@ -19,7 +19,10 @@
   },
   "files": ["lib", "locale", "cordis.patch.yml", "README.md", "README.eng.md", "detail.zh.md", "detail.en.md", "CHANGELOG.md", "LICENSE", "AGENTS.md"],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "platforms": ["wsl", "win32"]
+    },
     "client": {
       "platform": "web",
       "inject": [

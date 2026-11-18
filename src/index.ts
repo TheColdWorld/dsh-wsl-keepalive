@@ -45,6 +45,9 @@ export const Config = z.object({
 
 export function apply(ctx: Context, config: Config): void {
   const host = createHostService(process.platform)
+  if (host.kind === 'unsupported') {
+    ctx.logger.info('wsl-keepalive: this Host is not WSL or Windows; keep-alive is unavailable')
+  }
   const readSettings = () => normalizeSettings({
     targets: config.targets.get() as unknown as readonly LegacyTarget[],
     keepDefault: config.keepDefault.get(),
@@ -70,10 +73,12 @@ export function apply(ctx: Context, config: Config): void {
     }, 'wsl-keepalive: fetch routes')
   })
 
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.effect(
-      () => settingsCtx.settings.configure({ auto: false }, ctx.fiber),
-      'wsl-keepalive: settings page policy',
-    )
-  })
+  if (host.kind !== 'unsupported') {
+    ctx.inject(['settings'], (settingsCtx) => {
+      settingsCtx.effect(
+        () => settingsCtx.settings.configure({ auto: false }, ctx.fiber),
+        'wsl-keepalive: settings page policy',
+      )
+    })
+  }
 }

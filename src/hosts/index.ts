@@ -7,10 +7,20 @@
 import type { HostService } from '../core/host.ts'
 import { UnsupportedHostService } from './unsupported.ts'
 import { WindowsHostService } from './windows.ts'
-import { WslHostService } from './wsl.ts'
+import { isWsl, WslHostService } from './wsl.ts'
 
-export function createHostService(platform: NodeJS.Platform = process.platform): HostService {
-  if (platform === 'linux') return new WslHostService()
+/**
+ * Select the host adapter. Linux is only a WSL host when the process carries
+ * WSL markers; a plain Linux host is deliberately unsupported so the plugin
+ * does not pretend a WSL switch exists there.
+ * @param platform - Node platform, injectable for tests.
+ * @param wsl - whether this Linux host is WSL, injectable for tests.
+ */
+export function createHostService(
+  platform: NodeJS.Platform = process.platform,
+  wsl: boolean = isWsl({ platform }),
+): HostService {
+  if (platform === 'linux') return wsl ? new WslHostService() : new UnsupportedHostService()
   if (platform === 'win32') return new WindowsHostService()
   return new UnsupportedHostService()
 }

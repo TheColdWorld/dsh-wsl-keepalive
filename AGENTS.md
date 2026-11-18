@@ -4,7 +4,8 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 
 ## Project shape
 
-- dsh-wsl-keepalive is an unofficial DSH Web plugin.
+- dsh-wsl-keepalive is an unofficial DSH Web plugin for WSL and Windows hosts only.
+- The bundle declares `dsh.bundle.platforms: ["wsl", "win32"]`; on plain Linux DSH must not compose either half. The Client also treats an `unsupported` Host status as absent: no sidebar switch, and the configuration page only shows the unsupported-environment notice.
 - One Cordis row mounts a Host half (src/) and a Client half (src/client/).
 - The Client half registers a compact switch in sidebar.footer.action and a configuration page in plugins.row.config.
 - The Host half owns the host-selected keep-alive service, multi-distro process lifecycle, and Connection exact Fetch routes.
@@ -108,7 +109,7 @@ Run tests with Node 22.19+ or 24+. Never test with the 3080 production instance;
 | src/core/migrate.ts | 0.3.0 config normalization |
 | src/core/service.ts | Resolution, uniqueness, status/set orchestration |
 | src/core/routes.ts | /api/wsl-keepalive/status, /set, /validate with body caps |
-| src/hosts/wsl.ts | WSL host: WSL_DISTRO_NAME then wslpath UNC, binfmt -> socket -> probe, POSIX paths |
+| src/hosts/wsl.ts | WSL host: isWsl host detector, WSL_DISTRO_NAME then wslpath UNC, binfmt -> socket -> probe, POSIX paths |
 | src/hosts/windows.ts | Windows host: '*' default distro, Windows paths, SystemRoot cwd |
 | src/hosts/unsupported.ts | Fail-closed placeholder for other hosts |
 | src/hosts/index.ts | createHostService(platform) |

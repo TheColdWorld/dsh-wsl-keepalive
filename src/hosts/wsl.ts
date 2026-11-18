@@ -9,6 +9,7 @@
 
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { release } from 'node:os'
 import path from 'node:path'
 import type { EnvCheck, ResolvedTarget, WslPathValidation } from '../core/types.ts'
 import type { HostService, ResolvedWslExec } from '../core/host.ts'
@@ -21,6 +22,32 @@ import {
 } from '../core/validate.ts'
 
 export const DEFAULT_WSL_EXEC = '/mnt/c/Windows/System32/wsl.exe'
+
+/** Host facts used to distinguish a WSL distro from an ordinary Linux host. */
+export interface WslEnvironmentFacts {
+  /** Node platform; defaults to the current Host. */
+  platform?: string
+  /** Process environment; defaults to the current Host. */
+  env?: NodeJS.ProcessEnv
+  /** Kernel release; defaults to this Host's `os.release()`. */
+  osRelease?: string
+}
+
+/**
+ * Identify a Linux process running under Windows Subsystem for Linux. WSL
+ * always exports at least one marker, and a WSL2 kernel release carries
+ * `microsoft`; plain Linux matches neither. The bundle declares `wsl` as its
+ * supported platform, so this is also the guard that keeps the plugin from
+ * loading on an ordinary Linux host.
+ * @param facts - injectable process and kernel facts for tests.
+ * @returns true only for a Linux host with WSL markers.
+ */
+export function isWsl(facts: WslEnvironmentFacts = {}): boolean {
+  if ((facts.platform ?? process.platform) !== 'linux') return false
+  const env = facts.env ?? process.env
+  return Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP)
+    || (facts.osRelease ?? release()).toLowerCase().includes('microsoft')
+}
 
 /** WSL2 returns \\wsl.localhost\<name>\; WSL1 and older builds use \\wsl$\<name>\. */
 const WSL_UNC = /^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(?:\\|$)/i

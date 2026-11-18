@@ -52,6 +52,7 @@ export type KeepAliveKey =
   | 'errDuplicateTargets'
   | 'errDistroNameRequired'
   | 'errHostUnsupported'
+  | 'unsupportedEnv'
   | 'implicitUnavailableDshDistro'
   | 'implicitUnavailableDefaultDistro'
 
@@ -104,6 +105,7 @@ export const en: Record<KeepAliveKey, string> = {
   errDuplicateTargets: 'Duplicate distros found; the same distro cannot be added twice.',
   errDistroNameRequired: 'A distro name is required.',
   errHostUnsupported: 'This host is not supported for WSL keep-alive in this build.',
+  unsupportedEnv: 'Unsupported environment',
   implicitUnavailableDshDistro: 'Cannot identify the distro that runs dsh.',
   implicitUnavailableDefaultDistro: 'Cannot identify the WSL default distro.',
 }
@@ -157,6 +159,7 @@ export const zh: Record<KeepAliveKey, string> = {
   errDuplicateTargets: '存在重复的发行版，不允许添加相同的发行版。',
   errDistroNameRequired: '发行版不能为空。',
   errHostUnsupported: '当前宿主暂不支持 WSL 保活。',
+  unsupportedEnv: '不支持的环境',
   implicitUnavailableDshDistro: '无法识别dsh运行的发行版',
   implicitUnavailableDefaultDistro: '无法识别WSL默认发行版',
 }

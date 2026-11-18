@@ -74,12 +74,13 @@ function hasDuplicate(rows: readonly TargetRow[]): boolean {
   return false
 }
 
-export function ConfigPage(props: ConfigPageProps): React.ReactElement {
+export function ConfigPage(props: ConfigPageProps): React.ReactElement | null {
   const { t, view, form } = props
   const [rows, setRows] = useState<TargetRow[]>([])
   const [keepDefault, setKeepDefault] = useState(true)
   const [preferredWslExec, setPreferredWslExec] = useState('')
   const [status, setStatus] = useState<KeepAliveStatus | null>(null)
+  const [statusFailed, setStatusFailed] = useState(false)
   const [supportsKeepDefault, setSupportsKeepDefault] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -100,12 +101,28 @@ export function ConfigPage(props: ConfigPageProps): React.ReactElement {
         setStatus(next)
         setSupportsKeepDefault(true)
       },
-      () => {},
+      () => {
+        if (!active) return
+        // The Host half is absent or this Host cannot serve the feature. Do
+        // not render an editor that cannot work on this environment.
+        setStatusFailed(true)
+      },
     )
     return () => { active = false }
   }, [])
 
-  if (view === 'summary') return <>{t('description')}</>
+  const unsupported = statusFailed || status?.host === 'unsupported'
+  if (view === 'summary') return <>{unsupported ? t('unsupportedEnv') : t('description')}</>
+  if (unsupported) {
+    return (
+      <section className={css.config}>
+        <p className={css.error}>{t('unsupportedEnv')}</p>
+      </section>
+    )
+  }
+  // Wait for the Host verdict before deciding between the editor and the
+  // unsupported notice; a supported Host answers almost immediately.
+  if (status === null) return null
   if (form === undefined) return <p className={css.note}>{t('unavailable')}</p>
 
   const host = status?.host ?? 'wsl'

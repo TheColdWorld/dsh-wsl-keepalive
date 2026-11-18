@@ -17,7 +17,7 @@ export type KeepAliveSwitchProps =
   SidebarFooterActionOwnerProps
   & PropsLocale<'wsl-keepalive'>
 
-export function KeepAliveSwitch(props: KeepAliveSwitchProps): React.ReactElement {
+export function KeepAliveSwitch(props: KeepAliveSwitchProps): React.ReactElement | null {
   const { t, wide } = props
   const [status, setStatus] = useState<KeepAliveStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -48,6 +48,11 @@ export function KeepAliveSwitch(props: KeepAliveSwitchProps): React.ReactElement
       },
     ).finally(() => { setBusy(false) })
   }, [busy, status, t])
+
+  // A non-WSL host has no switch at all; the first status read also avoids
+  // flashing a switch before we know whether this host supports the feature.
+  if (status?.host === 'unsupported') return null
+  if (status === null && transportError === null) return null
 
   const enabled = status?.enabled ?? false
   const hasError = transportError !== null

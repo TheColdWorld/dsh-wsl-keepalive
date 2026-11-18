@@ -42,7 +42,7 @@ Adds one compact switch below the balance card in the DSH Web sidebar to start o
   and compares again before starting; the log includes the original text of
   the tampered file (JSON-escaped and length-bounded). It does not depend on
   extra tools such as sha256sum/cut.
-- WSL environment detection lives in `src/hosts/wsl.ts`: binfmt_misc first, then the /run/WSL interop socket, then a real wsl.exe probe.
+- The bundle declares `dsh.bundle.platforms: ["wsl", "win32"]`. On plain Linux DSH does not load the plugin at all, so the sidebar switch is never registered. On older DSH versions that ignore the field, the Host reports an unsupported environment, the configuration page only says “Unsupported environment”, and the sidebar still registers no switch.
 
 ## Requirements
 

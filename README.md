@@ -39,7 +39,7 @@
   不一致时覆写标准内容、chmod 700、记录日志并再次比较后才启动；
   日志会带上被篡改文件的原文（JSON 转义、按长度截断）；
   不依赖 sha256sum/cut 等额外工具。
-- 环境检测优先检查目标发行版的 binfmt_misc，再检查 /run/WSL interop socket，最后做真实 wsl.exe 探测。
+- bundle 声明 `dsh.bundle.platforms: ["wsl", "win32"]`。纯 Linux 上 DSH 不会加载本插件，也不会注册侧边栏开关；不支持该字段的旧版 DSH 会留在宿主未支持状态，配置页只显示“不支持的环境”，侧边栏不注册开关。
 
 ## 要求
 
