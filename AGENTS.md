@@ -5,7 +5,7 @@ Rules for agent contributors to this repository. Applies to the whole repo.
 ## Project shape
 
 - dsh-wsl-keepalive is an unofficial DSH Web plugin for WSL and Windows hosts only.
-- The bundle declares `dsh.bundle.platforms: ["wsl", "win32"]`; on plain Linux DSH must not compose either half. The Client also treats an `unsupported` Host status as absent: no sidebar switch, and the configuration page only shows the unsupported-environment notice.
+- The bundle declares `dsh.bundle.platforms: ["linux", "win32"]`. DSH only accepts Node platform names, so `"wsl"` is rejected and makes DSH skip the bundle. WSL and plain Linux share `linux`; the split is runtime-only: plain Linux selects the fail-closed unsupported host, the Client treats that status as absent (no sidebar switch, configuration page only shows the unsupported-environment notice), and no keep-alive service starts.
 - One Cordis row mounts a Host half (src/) and a Client half (src/client/).
 - The Client half registers a compact switch in sidebar.footer.action and a configuration page in plugins.row.config.
 - The Host half owns the host-selected keep-alive service, multi-distro process lifecycle, and Connection exact Fetch routes.

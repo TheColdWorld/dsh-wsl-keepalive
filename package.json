@@ -1,6 +1,6 @@
 {
   "name": "dsh-wsl-keepalive",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Multi-distro WSL keep-alive switch for the DeepSeek Harness Web sidebar.",
   "type": "module",
   "packageManager": "pnpm@11.28.5",
@@ -21,7 +21,7 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml",
-      "platforms": ["wsl", "win32"]
+      "platforms": ["linux", "win32"]
     },
     "client": {
       "platform": "web",

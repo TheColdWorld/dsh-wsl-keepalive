@@ -1,13 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
 
-- Declare `dsh.bundle.platforms: ["wsl", "win32"]` so DSH composes neither
-  half of the plugin on a plain Linux host: no sidebar switch, no configuration
-  page, and no keep-alive service.
+- Declare `dsh.bundle.platforms: ["linux", "win32"]`. DSH validates the field
+  against Node platform names, so `"wsl"` is invalid and makes DSH skip the
+  whole bundle; WSL and plain Linux share `linux` and are told apart at
+  runtime.
 - `createHostService()` now classifies Linux as WSL only when
   `WSL_DISTRO_NAME`, `WSL_INTEROP`, or a `microsoft` kernel release is
-  present; ordinary Linux selects the fail-closed unsupported adapter.
+  present; ordinary Linux selects the fail-closed unsupported adapter, so no
+  switch is registered and no keep-alive service starts.
 - Older DSH versions that ignore `dsh.bundle.platforms` keep the plugin
   loaded but render no sidebar switch and show “不支持的环境” /
   “Unsupported environment” instead of the target editor.
